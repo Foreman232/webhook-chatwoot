@@ -37,7 +37,8 @@ def webhook():
 
     headers = {
         "Content-Type": "application/json",
-        "api_access_token": yxKGn4IO24k4MRONILaJxG7xAK
+        "api_access_token": CHATWOOT_API_KEY
+
     }
 
     chatwoot_url = f"https://app.chatwoot.com/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/incoming_messages"
