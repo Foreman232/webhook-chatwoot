@@ -4,9 +4,9 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-CHATWOOT_API_KEY = os.getenv("8JE48bwAMsyvEihSvjHy6Ag6")
-CHATWOOT_ACCOUNT_ID = os.getenv("122053")
-CHATWOOT_INBOX_ID = os.getenv("65391")
+CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")
+CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
+CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
 
 @app.route("/", methods=["GET"])
 def home():
@@ -47,4 +47,4 @@ def webhook():
     return "ok", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000
+    app.run(host="0.0.0.0", port=3000)
