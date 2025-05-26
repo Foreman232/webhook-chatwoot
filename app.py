@@ -6,8 +6,7 @@ app = Flask(__name__)
 
 CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
-"inbox_id": int(CHATWOOT_INBOX_ID) if CHATWOOT_INBOX_ID else 0,
-
+CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
 
 @app.route("/", methods=["GET"])
 def home():
@@ -27,7 +26,7 @@ def webhook():
         return "invalid", 400
 
     payload = {
-        "inbox_id": int(CHATWOOT_INBOX_ID),
+        "inbox_id": int(CHATWOOT_INBOX_ID) if CHATWOOT_INBOX_ID else 0,
         "source_id": phone,
         "contact": {
             "name": contact_name,
@@ -39,7 +38,6 @@ def webhook():
     headers = {
         "Content-Type": "application/json",
         "api_access_token": CHATWOOT_API_KEY
-
     }
 
     chatwoot_url = f"https://app.chatwoot.com/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/incoming_messages"
