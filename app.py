@@ -1,17 +1,16 @@
 import os
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Cargar las variables de entorno configuradas en Render
-CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")            # 8JE48bwAMsyvEihSvjHy6Ag6
-CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")      # 122053
-CHATWOOT_INBOX_IDENTIFIER = os.getenv("CHATWOOT_INBOX_IDENTIFIER")  # FmIi9sWlyf5uafK6dmzoj84Qh
+CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")
+CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
+CHATWOOT_INBOX_IDENTIFIER = os.getenv("CHATWOOT_INBOX_IDENTIFIER")  # OJO, esto lo agregaste en tus variables de entorno
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ Webhook de WhatsApp activo", 200
+    return "Webhook activo ✅", 200
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -24,32 +23,46 @@ def webhook():
         message_text = data["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"]
     except Exception as e:
         print("❌ Error extrayendo mensaje:", e)
-        return "Invalid payload", 400
+        return "invalid", 400
 
-    # Enviar mensaje a Chatwoot usando inbox_identifier
-    url = f"https://app.chatwoot.com/public/api/v1/inboxes/{CHATWOOT_INBOX_IDENTIFIER}/webhooks"
-
+    # Paso 1: Crear contacto e iniciar conversación
+    url = f"https://app.chatwoot.com/public/api/v1/inboxes/{CHATWOOT_INBOX_IDENTIFIER}/contacts"
     headers = {
         "Content-Type": "application/json",
         "api_access_token": CHATWOOT_API_KEY
     }
-
     payload = {
+        "identifier": phone,
+        "name": contact_name,
+        "phone_number": phone,
+        "custom_attributes": {}
+    }
+
+    contact_response = requests.post(url, json=payload, headers=headers)
+    print("👤 Contacto creado:", contact_response.status_code, contact_response.text)
+
+    if contact_response.status_code != 200:
+        return "failed to create contact", 400
+
+    source_id = contact_response.json().get("source_id")
+
+    # Paso 2: Enviar mensaje entrante
+    message_url = f"https://app.chatwoot.com/public/api/v1/inboxes/{CHATWOOT_INBOX_IDENTIFIER}/messages"
+    message_payload = {
+        "content": message_text,
+        "inbox_identifier": CHATWOOT_INBOX_IDENTIFIER,
+        "message_type": "incoming",
         "sender": {
             "name": contact_name,
-            "identifier": phone,
             "phone_number": phone,
-            "additional_attributes": {}
-        },
-        "message": {
-            "content": message_text
+            "identifier": phone
         }
     }
 
-    response = requests.post(url, json=payload, headers=headers)
-    print("✅ Enviado a Chatwoot:", response.status_code, response.text)
+    message_response = requests.post(message_url, json=message_payload, headers=headers)
+    print("✅ Mensaje enviado:", message_response.status_code, message_response.text)
 
-    return "OK", 200
+    return "ok", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
