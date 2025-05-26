@@ -6,7 +6,8 @@ app = Flask(__name__)
 
 CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
-"inbox_id": int(CHATWOOT_INBOX_ID or 0),
+"inbox_id": int(CHATWOOT_INBOX_ID) if CHATWOOT_INBOX_ID else 0,
+
 
 @app.route("/", methods=["GET"])
 def home():
