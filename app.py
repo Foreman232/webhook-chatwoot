@@ -1,10 +1,12 @@
 import os
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")
+CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
+CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
 CHATWOOT_INBOX_IDENTIFIER = os.getenv("CHATWOOT_INBOX_IDENTIFIER")
 
 @app.route("/", methods=["GET"])
@@ -25,6 +27,7 @@ def webhook():
         return "invalid", 400
 
     payload = {
+        "inbox_identifier": CHATWOOT_INBOX_IDENTIFIER,
         "source_id": phone,
         "contact": {
             "name": contact_name,
