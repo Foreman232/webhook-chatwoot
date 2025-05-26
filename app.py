@@ -27,22 +27,23 @@ def webhook():
         print("❌ Error extrayendo mensaje:", e)
         return "invalid", 400
 
-    payload = {
-        "inbox_id": int(CHATWOOT_INBOX_ID),
-        "source_id": phone,
-        "contact": {
-            "name": contact_name,
-            "phone_number": phone
-        },
-        "content": message_text
-    }
+payload = {
+    "inbox_id": 65391,
+    "source_id": phone,
+    "contact": {
+        "name": contact_name,
+        "phone_number": phone
+    },
+    "content": message_text
+}
 
-    headers = {
-        "Content-Type": "application/json",
-        "api_access_token": CHATWOOT_API_KEY
-    }
+headers = {
+    "Content-Type": "application/json",
+    "api_access_token": "8JE48bwAMsyvEihSvjHy6Ag6"
+}
 
-    url = f"https://app.chatwoot.com/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/incoming_messages"
+chatwoot_url = "https://app.chatwoot.com/api/v1/accounts/122053/conversations/incoming_messages"
+
     response = requests.post(url, json=payload, headers=headers)
 
     print("\n✅ Enviado a Chatwoot:", response.status_code, response.text)
