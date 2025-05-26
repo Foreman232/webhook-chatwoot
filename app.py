@@ -4,10 +4,6 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-@app.route("/", methods=["GET"])
-def home():
-    return "Webhook activo ✅", 200
-
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -17,11 +13,16 @@ def webhook():
         changes = data["entry"][0]["changes"][0]
         value = changes.get("value", {})
 
-        # Solo procesa si contiene mensajes entrantes
         if "messages" in value and "contacts" in value:
             contact_name = value["contacts"][0]["profile"]["name"]
             phone = value["contacts"][0]["wa_id"]
-            message_text = value["messages"][0]["text"]["body"]
+            message = value["messages"][0]
+            message_type = message.get("type")
+
+            if message_type == "text":
+                message_text = message["text"]["body"]
+            else:
+                message_text = f"[Mensaje de tipo {message_type} recibido]"
 
             payload = {
                 "content": message_text,
@@ -50,6 +51,3 @@ def webhook():
     except Exception as e:
         print("❌ Error extrayendo mensaje:", e)
         return "invalid", 400
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
