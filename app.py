@@ -34,7 +34,7 @@ def webhook():
             "api_access_token": "8JE48bwAMsyvEihSvjHy6Ag6"
         }
 
-        chatwoot_url = "https://app.chatwoot.com/api/v1/accounts/122053/conversations/incoming_messages"
+        chatwoot_url = "https://app.chatwoot.com/public/api/v1/inboxes/FmIi9sWlyf5uafK6dmzoj84Qh/messages"
         response = requests.post(chatwoot_url, json=payload, headers=headers)
 
         print("\n✅ Enviado a Chatwoot:", response.status_code, response.text)
