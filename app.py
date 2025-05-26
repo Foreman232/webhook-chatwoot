@@ -4,6 +4,7 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
+# Variables de entorno
 CHATWOOT_API_KEY = os.getenv("CHATWOOT_API_KEY")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
 CHATWOOT_INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
@@ -15,26 +16,20 @@ def home():
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json()
-    print("📩 Mensaje recibido:", data)
+    print("\n📩 Mensaje recibido:", data)
 
     try:
-        contact_name = data["entry"][0]["changes"][0]["value"]["contacts"][0]["profile"]["name"]
-        phone = data["entry"][0]["changes"][0]["value"]["contacts"][0]["wa_id"]
-        message_text = data["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"]
+        value = data["entry"][0]["changes"][0]["value"]
+        contact_name = value["contacts"][0]["profile"]["name"]
+        phone = value["contacts"][0]["wa_id"]
+        message_text = value["messages"][0]["text"]["body"]
     except Exception as e:
         print("❌ Error extrayendo mensaje:", e)
         return "invalid", 400
 
-    # Crear conversación entrante en el inbox de WhatsApp (vía API)
-    url = f"https://app.chatwoot.com/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
-    headers = {
-        "Content-Type": "application/json",
-        "api_access_token": CHATWOOT_API_KEY
-    }
-
     payload = {
-        "source_id": phone,
         "inbox_id": int(CHATWOOT_INBOX_ID),
+        "source_id": phone,
         "contact": {
             "name": contact_name,
             "phone_number": phone
@@ -42,9 +37,15 @@ def webhook():
         "content": message_text
     }
 
-    response = requests.post(url, json=payload, headers=headers)
-    print("✅ Enviado a Chatwoot:", response.status_code, response.text)
+    headers = {
+        "Content-Type": "application/json",
+        "api_access_token": CHATWOOT_API_KEY
+    }
 
+    url = f"https://app.chatwoot.com/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/incoming_messages"
+    response = requests.post(url, json=payload, headers=headers)
+
+    print("\n✅ Enviado a Chatwoot:", response.status_code, response.text)
     return "ok", 200
 
 if __name__ == "__main__":
