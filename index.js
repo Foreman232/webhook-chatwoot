@@ -1,3 +1,5 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -73,13 +75,13 @@ async function getOrCreateConversation(contactId, sourceId) {
 async function sendToChatwoot(conversationId, type, content) {
   try {
     const payload = {
-      content,
       message_type: 'incoming',
       private: false
     };
     if (['image', 'document', 'audio', 'video'].includes(type)) {
       payload.attachments = [{ file_type: type, file_url: content }];
-      delete payload.content;
+    } else {
+      payload.content = content;
     }
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
@@ -97,8 +99,6 @@ app.post('/webhook', async (req, res) => {
     const phone = changes?.contacts?.[0]?.wa_id;
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
-
-    // ✅ Aquí está la línea corregida:
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
     const contact = await findOrCreateContact(phone, name);
