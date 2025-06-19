@@ -1,6 +1,10 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+
+// ⚠️ Aceptar certificados autofirmados del Chatwoot en Hostinger
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const app = express();
 app.use(bodyParser.json());
 
