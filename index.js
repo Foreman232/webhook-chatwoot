@@ -34,7 +34,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
       });
       return getResp.data.payload[0];
     }
-    console.error(':x: Contacto error:', err.message);
+    console.error('❌ Error creando contacto:', err.message);
     return null;
   }
 }
@@ -49,7 +49,7 @@ async function linkContactToInbox(contactId, phone) {
     });
   } catch (err) {
     if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error(':x: Inbox link error:', err.message);
+      console.error('❌ Error vinculando inbox:', err.message);
     }
   }
 }
@@ -60,6 +60,7 @@ async function getOrCreateConversation(contactId, sourceId) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
       inbox_id: CHATWOOT_INBOX_ID
@@ -68,7 +69,7 @@ async function getOrCreateConversation(contactId, sourceId) {
     });
     return newConv.data.id;
   } catch (err) {
-    console.error(':x: Error creando conversación:', err.message);
+    console.error('❌ Error creando conversación:', err.message);
     return null;
   }
 }
@@ -84,19 +85,19 @@ async function sendToChatwoot(conversationId, type, content) {
     } else {
       payload.content = content;
     }
+
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
-    console.error(':x: Error enviando a Chatwoot:', err.message);
+    console.error('❌ Error enviando a Chatwoot:', err.message);
   }
 }
 
 // Entrante desde WhatsApp (360dialog)
 app.post('/webhook', async (req, res) => {
   try {
-    // Reenvío a flujo de n8n
-    await axios.post(N8N_WEBHOOK_URL, req.body).catch(e => console.error('Error reenviando a n8n:', e.message));
+    await axios.post(N8N_WEBHOOK_URL, req.body).catch(e => console.error('❌ Error reenviando a n8n:', e.message));
 
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0]?.value;
@@ -124,7 +125,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link);
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `📍 Ubicación recibida:\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
@@ -132,7 +133,7 @@ app.post('/webhook', async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error(':x: Webhook error:', err.message);
+    console.error('❌ Error general webhook:', err.message);
     res.sendStatus(500);
   }
 });
@@ -141,6 +142,7 @@ app.post('/webhook', async (req, res) => {
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
+
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
   const content = msg.content;
   if (!number || !content) return res.sendStatus(200);
@@ -158,14 +160,13 @@ app.post('/outbound', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
-    console.log(`✅ Enviado a WhatsApp: ${content}`);
+    console.log(`✅ Enviado a WhatsApp: ${number} - ${content}`);
     res.sendStatus(200);
   } catch (err) {
-    console.error(':x: Error enviando a WhatsApp:', err.response?.data || err.message);
+    console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
     res.sendStatus(500);
   }
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
