@@ -9,12 +9,10 @@ app.use(bodyParser.json());
 const CHATWOOT_API_TOKEN = 'hERNBAhvrvcwKJW9mRSv3Tsn';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
-const BASE_URL = 'http://srv870442.hstgr.cloud/api/v1/accounts';  // SIN https
+const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
-
-// ⚠️ ESTA ES LA URL CORRECTA DE TU WEBHOOK EN n8n (producción)
-const N8N_WEBHOOK_URL = 'http://n8n.srv896698.hstgr.cloud/webhook/02cfb05c-e80b-4a83-a09d-35a8fe2fb2fb';
+const N8N_WEBHOOK_URL = 'https://n8n.srv896698.hstgr.cloud/webhook/02cfb95c-e80b-4a83-a09d-35a8fe2fb2fb';
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
@@ -96,10 +94,9 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// Entrante desde WhatsApp (360dialog)
+// ✅ ENTRANTE: Webhook de 360dialog → Chatwoot + n8n
 app.post('/webhook', async (req, res) => {
   try {
-    // 🚀 Manda todo a n8n
     await axios.post(N8N_WEBHOOK_URL, req.body).catch(e => console.error('❌ Error reenviando a n8n:', e.message));
 
     const entry = req.body.entry?.[0];
@@ -141,7 +138,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Saliente desde Chatwoot
+// ✅ SALIENTE: Respuesta desde Chatwoot → WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
