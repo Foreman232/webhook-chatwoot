@@ -13,6 +13,9 @@ const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 
+// 🌐 URL del flujo de n8n (CAMBIA ESTA)
+const N8N_WEBHOOK_URL = 'https://n8n.srv698689.hstgr.cloud/webhook/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
+
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -109,23 +112,19 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
-    if (type === 'text') {
-      await sendToChatwoot(conversationId, 'text', msg.text.body);
-    } else if (type === 'image') {
-      await sendToChatwoot(conversationId, 'image', msg.image?.link || 'Imagen recibida');
-    } else if (type === 'document') {
-      await sendToChatwoot(conversationId, 'document', msg.document?.link || 'Documento recibido');
-    } else if (type === 'audio') {
-      await sendToChatwoot(conversationId, 'audio', msg.audio?.link || 'Nota de voz recibida');
-    } else if (type === 'video') {
-      await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
-    } else if (type === 'location') {
-      const loc = msg.location;
-      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
-      await sendToChatwoot(conversationId, 'text', locStr);
-    } else {
-      await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
-    }
+    const content = msg.text?.body || msg[type]?.link || '[Sin contenido]';
+
+    // Enviar a Chatwoot
+    await sendToChatwoot(conversationId, type, content);
+
+    // También reenviar a n8n (bot)
+    await axios.post(N8N_WEBHOOK_URL, {
+      phone,
+      name,
+      type,
+      content
+    });
+
     res.sendStatus(200);
   } catch (err) {
     console.error('❌ Webhook error:', err.message);
