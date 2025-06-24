@@ -6,12 +6,12 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = process.env.CHATWOOT_API_TOKEN;
-const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID;
-const CHATWOOT_INBOX_ID = process.env.CHATWOOT_INBOX_ID;
-const BASE_URL = `https://srv870442.hstgr.cloud/api/v1/accounts`;
+const CHATWOOT_API_TOKEN = 'vP4SkyTiVZZvNSyTE6U6jxjP';
+const CHATWOOT_ACCOUNT_ID = '1';
+const CHATWOOT_INBOX_ID = '1';
+const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
-const D360_API_KEY = process.env.D360_API_KEY;
+const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `${phone}`;
@@ -33,7 +33,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
       });
       return getResp.data.payload[0];
     }
-    console.error('❌ Error creando contacto:', err.message);
+    console.error(':x: Contacto error:', err.response?.data || err.message);
     return null;
   }
 }
@@ -48,7 +48,7 @@ async function linkContactToInbox(contactId, phone) {
     });
   } catch (err) {
     if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error('❌ Error vinculando inbox:', err.message);
+      console.error(':x: Inbox link error:', err.response?.data || err.message);
     }
   }
 }
@@ -68,7 +68,7 @@ async function getOrCreateConversation(contactId, sourceId) {
     });
     return newConv.data.id;
   } catch (err) {
-    console.error('❌ Error creando conversación:', err.message);
+    console.error(':x: Error creando conversación:', err.response?.data || err.message);
     return null;
   }
 }
@@ -79,7 +79,6 @@ async function sendToChatwoot(conversationId, type, content) {
       message_type: 'incoming',
       private: false
     };
-
     if (['image', 'document', 'audio', 'video'].includes(type)) {
       payload.attachments = [{ file_type: type, file_url: content }];
     } else {
@@ -90,11 +89,10 @@ async function sendToChatwoot(conversationId, type, content) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
-    console.error('❌ Error enviando a Chatwoot:', err.message);
+    console.error(':x: Error enviando a Chatwoot:', err.response?.data || err.message);
   }
 }
 
-// Entrante desde WhatsApp (360dialog)
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -102,7 +100,6 @@ app.post('/webhook', async (req, res) => {
     const phone = changes?.contacts?.[0]?.wa_id;
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
-
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
     const contact = await findOrCreateContact(phone, name);
@@ -125,7 +122,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link);
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `📍 Ubicación recibida:\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
@@ -133,12 +130,11 @@ app.post('/webhook', async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Error general webhook:', err.message);
+    console.error(':x: Webhook error:', err.response?.data || err.message);
     res.sendStatus(500);
   }
 });
 
-// Saliente desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
@@ -160,10 +156,10 @@ app.post('/outbound', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
-    console.log(`✅ Enviado a WhatsApp: ${number} - ${content}`);
+    console.log(`✅ Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
+    console.error(':x: Error enviando a WhatsApp:', err.response?.data || err.message);
     res.sendStatus(500);
   }
 });
