@@ -12,7 +12,6 @@ const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
-const N8N_WEBHOOK_URL = 'https://n8n.srv896698.hstgr.cloud/webhook/02cfb95c-e80b-4a83-a09d-35a8fe2fb2fb';
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
@@ -94,10 +93,9 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
+// ✅ ENTRANTE: Webhook de 360dialog → Chatwoot
 app.post('/webhook', async (req, res) => {
   try {
-    await axios.post(N8N_WEBHOOK_URL, req.body).catch(e => console.error('❌ Error reenviando a n8n:', e.message));
-
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0]?.value;
     const phone = changes?.contacts?.[0]?.wa_id;
@@ -137,6 +135,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// ✅ SALIENTE: Chatwoot → WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
