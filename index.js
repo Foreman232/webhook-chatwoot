@@ -1,126 +1,117 @@
-const express = require('express');
-const axios = require('axios');
-const bodyParser = require('body-parser');
+const express = require("express");
+const bodyParser = require("body-parser");
+const axios = require("axios");
+
 const app = express();
-const port = 10000;
-
-// Configuración
-const CHATWOOT_API_TOKEN = 'hERNBAhvrvcwKJW9mRSv3Tsn';
-const CHATWOOT_ACCOUNT_ID = 1;
-const CHATWOOT_INBOX_ID = 1;
-const CHATWOOT_URL = 'https://srv870442.hstgr.cloud';
-const WHATSAPP_TOKEN = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
-
 app.use(bodyParser.json());
 
-// Endpoint para mensajes entrantes de WhatsApp (360dialog)
-app.post('/webhook', async (req, res) => {
-  const mensaje = req.body;
-  console.log('📥 Mensaje recibido:', JSON.stringify(mensaje, null, 2));
+const PORT = 10000;
+const tokenWABA = "icCVWtPvpn2Eb9c2C5wjfA4NAK"; // Token de 360dialog
+const api360 = "https://waba.360dialog.io/v1/messages";
+
+app.get("/", (_, res) => res.send("✅ Webhook funcionando"));
+
+app.post("/webhook", async (req, res) => {
+  const data = req.body;
+  console.log("📥 Mensaje recibido:", JSON.stringify(data, null, 2));
 
   try {
-    const mensajeTexto = mensaje.messages?.[0]?.text?.body || '';
-    const telefono = mensaje.contacts?.[0]?.wa_id;
-    const nombre = mensaje.contacts?.[0]?.profile?.name || 'Cliente';
+    const messages = data.messages || [];
+    for (const message of messages) {
+      const from = message.from;
+      const text = message.text?.body || "Contenido no soportado";
+      const profileName = message?.profile?.name || "Cliente";
+      const inboxId = 1; // Ajusta según tu configuración
+      const accountId = 1;
 
-    if (!telefono || !mensajeTexto) {
-      return res.sendStatus(200); // No procesamos si falta algo
+      const payload = {
+        contact: {
+          name: profileName,
+          phone_number: from,
+        },
+        conversation: {
+          inbox_id: inboxId,
+          source: "whatsapp",
+          additional_attributes: {
+            identifier: from,
+          },
+        },
+        messages: [
+          {
+            content: text,
+            content_type: "text",
+            message_type: "incoming",
+            sender: {
+              name: profileName,
+              phone_number: from,
+              additional_attributes: {
+                phone_number: from,
+              },
+            },
+          },
+        ],
+      };
+
+      await axios.post(
+        "https://srv870442.hstgr.cloud/public/api/v1/inboxes/1/webhook", // Tu Chatwoot inbox webhook URL
+        payload,
+        {
+          headers: {
+            api_access_token: "hERNBAhvrvcwKJW9mRSv3Tsn", // Token de Chatwoot
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      console.log("✅ Mensaje reenviado a Chatwoot");
     }
 
-    // 1. Crear contacto en Chatwoot
-    const contacto = await axios.post(
-      `${CHATWOOT_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts`,
-      {
-        inbox_id: CHATWOOT_INBOX_ID,
-        name: nombre,
-        identifier: telefono,
-        phone_number: telefono,
-      },
-      {
-        headers: {
-          api_access_token: CHATWOOT_API_TOKEN,
-        },
-      }
-    );
-
-    const contactId = contacto.data.payload.contact.id;
-
-    // 2. Crear conversación si no existe
-    const conversacion = await axios.post(
-      `${CHATWOOT_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
-      {
-        source_id: telefono,
-        inbox_id: CHATWOOT_INBOX_ID,
-        contact_id: contactId,
-      },
-      {
-        headers: {
-          api_access_token: CHATWOOT_API_TOKEN,
-        },
-      }
-    );
-
-    const conversationId = conversacion.data.id;
-
-    // 3. Enviar mensaje entrante a Chatwoot
-    await axios.post(
-      `${CHATWOOT_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
-      {
-        content: mensajeTexto,
-        message_type: 'incoming',
-      },
-      {
-        headers: {
-          api_access_token: CHATWOOT_API_TOKEN,
-        },
-      }
-    );
-
-    console.log(`✅ Mensaje entrante registrado en Chatwoot para ${telefono}`);
     res.sendStatus(200);
-  } catch (err) {
-    console.error('❌ Error procesando mensaje entrante:', err.response?.data || err.message);
+  } catch (error) {
+    console.error("❌ Error al reenviar a Chatwoot:", error.message);
     res.sendStatus(500);
   }
 });
 
-// Endpoint para mensajes salientes desde Chatwoot hacia WhatsApp
-app.post('/outbound', async (req, res) => {
+app.post("/outbound", async (req, res) => {
+  const payload = req.body;
+  console.log("📤 Mensaje saliente:", JSON.stringify(payload, null, 2));
+
   try {
-    const payload = req.body;
-    const numero = payload.conversation?.meta?.sender?.id;
     const mensaje = payload.content;
+    const numero =
+      payload?.conversation?.additional_attributes?.identifier ||
+      payload?.sender?.additional_attributes?.phone_number ||
+      payload?.sender?.phone_number;
 
     if (!numero || !mensaje) {
-      return res.sendStatus(200); // Ignorar si está incompleto
+      console.warn("⚠️ No hay número o mensaje, omitiendo envío");
+      return res.sendStatus(200);
     }
 
-    await axios.post(
-      'https://waba.360dialog.io/v1/messages',
-      {
-        to: numero,
-        type: 'text',
-        text: {
-          body: mensaje,
-        },
+    const data = {
+      to: numero,
+      type: "text",
+      text: {
+        body: mensaje,
       },
-      {
-        headers: {
-          'D360-API-KEY': WHATSAPP_TOKEN,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    };
 
-    console.log(`📤 Mensaje enviado a WhatsApp: ${numero}`);
+    const response = await axios.post(api360, data, {
+      headers: {
+        Authorization: `Bearer ${tokenWABA}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    console.log("✅ Mensaje enviado a WhatsApp:", response.data);
     res.sendStatus(200);
-  } catch (err) {
-    console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
+  } catch (error) {
+    console.error("❌ Error enviando a WhatsApp:", error.response?.data || error.message);
     res.sendStatus(500);
   }
 });
 
-// Iniciar servidor
-app.listen(port, () => {
-  console.log(`🚀 Webhook corriendo en puerto ${port}`);
+app.listen(PORT, () => {
+  console.log(`🚀 Webhook corriendo en puerto ${PORT}`);
+  console.log("🌐 Tu servicio está activo");
 });
