@@ -110,17 +110,36 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
-    const content = msg.text?.body || msg[type]?.link || '[Contenido no soportado]';
 
-    await sendToChatwoot(conversationId, type, content);
+    if (type === 'text') {
+      await sendToChatwoot(conversationId, 'text', msg.text.body);
+    } else if (type === 'image') {
+      await sendToChatwoot(conversationId, 'image', msg.image?.link || 'Imagen recibida');
+    } else if (type === 'document') {
+      await sendToChatwoot(conversationId, 'document', msg.document?.link || 'Documento recibido');
+    } else if (type === 'audio') {
+      await sendToChatwoot(conversationId, 'audio', msg.audio?.link || 'Nota de voz recibida');
+    } else if (type === 'video') {
+      await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
+    } else if (type === 'location') {
+      const loc = msg.location;
+      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      await sendToChatwoot(conversationId, 'text', locStr);
+    } else {
+      await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
+    }
 
-    // 🔁 Reenvío a N8N para procesamiento de bot
-    await axios.post(N8N_WEBHOOK_URL, {
-      phone,
-      name,
-      type,
-      content
-    });
+    // ✅ También lo enviamos a n8n
+    try {
+      await axios.post(N8N_WEBHOOK_URL, {
+        phone,
+        name,
+        type,
+        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
+      });
+    } catch (n8nErr) {
+      console.error('❌ Error enviando a n8n:', n8nErr.message);
+    }
 
     res.sendStatus(200);
   } catch (err) {
