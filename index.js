@@ -93,7 +93,7 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ ENTRANTE: Webhook de 360dialog → Chatwoot
+// ✅ ENTRANTE: Webhook de 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -135,7 +135,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ SALIENTE: Chatwoot → WhatsApp
+// ✅ SALIENTE: Chatwoot → WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
