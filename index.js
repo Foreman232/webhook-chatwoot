@@ -6,7 +6,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
+const CHATWOOT_API_TOKEN = 'vP4SkyTiVZZvNSyTE6U6jxjP';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
@@ -14,7 +14,7 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
-  const identifier = `${phone}`;
+  const identifier = `+${phone}`; // ✅ Formato E.164
   const payload = {
     inbox_id: CHATWOOT_INBOX_ID,
     name,
@@ -42,7 +42,7 @@ async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: `${phone}`
+      source_id: `+${phone}` // ✅ También con "+"
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
