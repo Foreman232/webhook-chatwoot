@@ -9,7 +9,7 @@ app.use(bodyParser.json());
 // === CONFIGURACIÓN ===
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
 const CHATWOOT_ACCOUNT_ID = '1';
-const CHATWOOT_INBOX_ID = '3'; // ← Asegúrate que este sea tu inbox ID real
+const CHATWOOT_INBOX_ID = '1'; // ← Asegúrate que este sea tu inbox ID real
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
