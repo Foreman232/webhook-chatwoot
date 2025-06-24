@@ -6,7 +6,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = 'hERNBAhvrvcwKJW9mRSv3Tsn';
+const CHATWOOT_API_TOKEN = 'EzSy9aACMp2eCgcFATGwZRQp'; // ✅ Token nuevo
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
@@ -93,7 +93,7 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ ENTRANTE: Webhook de 360dialog
+// ✅ Webhook entrante: 360dialog → Chatwoot
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -135,7 +135,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ SALIENTE: Chatwoot → WhatsApp (360dialog)
+// ✅ Webhook saliente: Chatwoot → WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
