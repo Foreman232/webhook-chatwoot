@@ -94,7 +94,6 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ ENTRANTE: Webhook de 360dialog → Chatwoot + n8n
 app.post('/webhook', async (req, res) => {
   try {
     await axios.post(N8N_WEBHOOK_URL, req.body).catch(e => console.error('❌ Error reenviando a n8n:', e.message));
@@ -138,7 +137,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ SALIENTE: Respuesta desde Chatwoot → WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
