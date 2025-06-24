@@ -6,13 +6,15 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
+// === CONFIGURACIÓN CHATWOOT Y 360DIALOG ===
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
-const CHATWOOT_ACCOUNT_ID = '1';
-const CHATWOOT_INBOX_ID = '1';
+const CHATWOOT_ACCOUNT_ID = '1'; // Asegúrate que sea el correcto
+const CHATWOOT_INBOX_ID = '3';   // Reemplaza con el ID real de "Chep Tarimas Azules"
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 
+// === FUNCIONES PARA ENTRANTES ===
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -78,6 +80,7 @@ async function sendToChatwoot(conversationId, type, content) {
     message_type: 'incoming',
     private: false
   };
+
   if (['image', 'document', 'audio', 'video'].includes(type)) {
     payload.attachments = [{ file_type: type, file_url: content }];
   } else {
@@ -89,10 +92,11 @@ async function sendToChatwoot(conversationId, type, content) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
-    console.error('❌ Error enviando mensaje a Chatwoot:', err.response?.data || err.message);
+    console.error('❌ Error enviando a Chatwoot:', err.response?.data || err.message);
   }
 }
 
+// === RUTA DE ENTRADA: WHATSAPP → CHATWOOT ===
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -101,7 +105,7 @@ app.post('/webhook', async (req, res) => {
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
 
-    if (!phone || !msg /* || msg.from_me */) return res.sendStatus(200); // <- deja temporal sin filtro from_me
+    if (!phone || !msg /* || msg.from_me */) return res.sendStatus(200);
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
@@ -136,13 +140,23 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// === RUTA DE SALIDA: CHATWOOT → WHATSAPP ===
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
-  if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
 
-  const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
+  if (!msg?.message_type || !['outgoing', 'outgoing_api'].includes(msg.message_type)) {
+    return res.sendStatus(200);
+  }
+
+  const phone = msg.conversation?.meta?.sender?.phone_number;
   const content = msg.content;
-  if (!number || !content) return res.sendStatus(200);
+
+  if (!phone || !content) {
+    console.warn('⚠️ Mensaje saliente sin número o contenido, ignorado');
+    return res.sendStatus(200);
+  }
+
+  const number = phone.replace('+', '');
 
   try {
     await axios.post(D360_API_URL, {
@@ -157,6 +171,7 @@ app.post('/outbound', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
+
     console.log(`✅ Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
@@ -165,6 +180,6 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
+// === INICIAR SERVIDOR ===
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
