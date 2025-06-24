@@ -5,6 +5,9 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
+const seenMessages = new Set(); // ✅ Control de duplicados
+
+// ✅ CONFIGURACIÓN ACTUALIZADA
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -91,6 +94,7 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
+// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -99,6 +103,14 @@ app.post('/webhook', async (req, res) => {
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
+
+    const messageId = msg.id;
+    if (seenMessages.has(messageId)) {
+      console.log('⚠️ Mensaje duplicado, ignorado:', messageId);
+      return res.sendStatus(200);
+    }
+    seenMessages.add(messageId);
+    setTimeout(() => seenMessages.delete(messageId), 5 * 60 * 1000); // Limpieza
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
@@ -146,6 +158,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// ✅ Mensaje saliente desde Chatwoot hacia WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
