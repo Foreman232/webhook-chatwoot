@@ -5,7 +5,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ CONFIGURACIÓN ACTUALIZADA
+// ✅ DATOS ACTUALIZADOS
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -33,7 +33,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
       });
       return getResp.data.payload[0];
     }
-    console.error('❌ Error creando contacto:', err.message);
+    console.error(':x: Contacto error:', err.message);
     return null;
   }
 }
@@ -48,7 +48,7 @@ async function linkContactToInbox(contactId, phone) {
     });
   } catch (err) {
     if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error('❌ Error vinculando inbox:', err.message);
+      console.error(':x: Inbox link error:', err.message);
     }
   }
 }
@@ -67,7 +67,7 @@ async function getOrCreateConversation(contactId, sourceId) {
     });
     return newConv.data.id;
   } catch (err) {
-    console.error('❌ Error creando conversación:', err.message);
+    console.error(':x: Error creando conversación:', err.message);
     return null;
   }
 }
@@ -87,11 +87,11 @@ async function sendToChatwoot(conversationId, type, content) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
-    console.error('❌ Error enviando a Chatwoot:', err.message);
+    console.error(':x: Error enviando a Chatwoot:', err.message);
   }
 }
 
-// ✅ ENTRANTE: 360dialog → Chatwoot
+// ✅ Webhook desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -99,12 +99,9 @@ app.post('/webhook', async (req, res) => {
     const phone = changes?.contacts?.[0]?.wa_id;
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
-
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
-
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
-
     await linkContactToInbox(contact.id, phone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
@@ -122,28 +119,25 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
-
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Webhook error:', err.message);
+    console.error(':x: Webhook error:', err.message);
     res.sendStatus(500);
   }
 });
 
-// ✅ SALIENTE: Chatwoot → WhatsApp (360dialog)
+// ✅ Mensaje saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
-
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
   const content = msg.content;
   if (!number || !content) return res.sendStatus(200);
-
   try {
     await axios.post(D360_API_URL, {
       to: number,
@@ -151,7 +145,7 @@ app.post('/outbound', async (req, res) => {
       text: { body: content }
     }, {
       headers: {
-        Authorization: `Bearer ${D360_API_KEY}`,
+        'D360-API-KEY': D360_API_KEY,
         'Content-Type': 'application/json'
       }
     });
@@ -163,8 +157,5 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Levantar servidor
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🚀 Webhook corriendo en puerto ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
