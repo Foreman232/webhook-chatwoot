@@ -12,9 +12,7 @@ const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
-
-// 🌐 URL del flujo de n8n (CAMBIA ESTA)
-const N8N_WEBHOOK_URL = 'https://n8n.srv698689.hstgr.cloud/webhook/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
+const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
@@ -112,12 +110,11 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
-    const content = msg.text?.body || msg[type]?.link || '[Sin contenido]';
+    const content = msg.text?.body || msg[type]?.link || '[Contenido no soportado]';
 
-    // Enviar a Chatwoot
     await sendToChatwoot(conversationId, type, content);
 
-    // También reenviar a n8n (bot)
+    // 🔁 Reenvío a N8N para procesamiento de bot
     await axios.post(N8N_WEBHOOK_URL, {
       phone,
       name,
