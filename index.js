@@ -6,7 +6,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = 'EzSy9aACMp2eCgcFATGwZRQp'; // ✅ Token nuevo
+const CHATWOOT_API_TOKEN = 'EzSy9aACMp2eCgcFATGwZRQp'; // Token nuevo
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
@@ -14,7 +14,7 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
-  const identifier = `+${phone}`;
+  const identifier = `${phone}`;
   const payload = {
     inbox_id: CHATWOOT_INBOX_ID,
     name,
@@ -42,7 +42,7 @@ async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: `+${phone}`
+      source_id: `${phone}`
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -93,7 +93,7 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ Webhook entrante: 360dialog → Chatwoot
+// Entrante desde WhatsApp (360dialog)
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -135,7 +135,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Webhook saliente: Chatwoot → WhatsApp (360dialog)
+// Saliente desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
