@@ -139,13 +139,14 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ También lo enviamos a n8n
+    // ✅ También lo enviamos a n8n con el ID único
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
         name,
         type,
-        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
+        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]',
+        messageId // ✅ PARA FILTRO EN N8N
       });
     } catch (n8nErr) {
       console.error('❌ Error enviando a n8n:', n8nErr.message);
