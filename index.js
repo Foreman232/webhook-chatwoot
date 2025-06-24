@@ -6,12 +6,12 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = 'EzSy9aACMp2eCgcFATGwZRQp'; // Token nuevo
-const CHATWOOT_ACCOUNT_ID = '1';
-const CHATWOOT_INBOX_ID = '1';
-const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
+const CHATWOOT_API_TOKEN = process.env.CHATWOOT_API_TOKEN;
+const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID;
+const CHATWOOT_INBOX_ID = process.env.CHATWOOT_INBOX_ID;
+const BASE_URL = `https://srv870442.hstgr.cloud/api/v1/accounts`;
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
-const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
+const D360_API_KEY = process.env.D360_API_KEY;
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `${phone}`;
@@ -79,6 +79,7 @@ async function sendToChatwoot(conversationId, type, content) {
       message_type: 'incoming',
       private: false
     };
+
     if (['image', 'document', 'audio', 'video'].includes(type)) {
       payload.attachments = [{ file_type: type, file_url: content }];
     } else {
@@ -101,10 +102,12 @@ app.post('/webhook', async (req, res) => {
     const phone = changes?.contacts?.[0]?.wa_id;
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
+
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
+
     await linkContactToInbox(contact.id, phone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
