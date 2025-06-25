@@ -110,7 +110,7 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
     seenMessages.add(messageId);
-    setTimeout(() => seenMessages.delete(messageId), 5 * 60 * 1000); // Limpieza
+    setTimeout(() => seenMessages.delete(messageId), 5 * 60 * 1000);
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
@@ -139,14 +139,15 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ También lo enviamos a n8n con el ID único
+    // ✅ También lo enviamos a n8n con conversaciónId incluido
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
         name,
         type,
         content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]',
-        messageId // ✅ PARA FILTRO EN N8N
+        messageId,
+        conversationId // ✅ Aquí se incluye para usarlo en n8n
       });
     } catch (n8nErr) {
       console.error('❌ Error enviando a n8n:', n8nErr.message);
@@ -162,6 +163,9 @@ app.post('/webhook', async (req, res) => {
 // ✅ Mensaje saliente desde Chatwoot hacia WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
+
+  // ❌ Ignora si viene desde n8n
+  if (msg.custom_attributes?.from_n8n) return res.sendStatus(200);
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
 
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
