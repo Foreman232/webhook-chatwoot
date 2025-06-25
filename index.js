@@ -1,4 +1,3 @@
-// index.js completo actualizado para aceptar duplicados
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -109,12 +108,17 @@ app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0]?.value;
-    const phone = changes?.contacts?.[0]?.wa_id;
-    const name = changes?.contacts?.[0]?.profile?.name;
-    const msg = changes?.messages?.[0];
-    if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
-    const messageId = msg.id;
+    if (!changes?.messages) return res.sendStatus(200); // ignorar status
+
+    const msg = changes.messages[0];
+    const phone = changes.contacts?.[0]?.wa_id;
+    const name = changes.contacts?.[0]?.profile?.name || 'Cliente WhatsApp';
+
+    console.log('📥 Mensaje recibido:', msg);
+
+    if (!phone || !msg) return res.sendStatus(200);
+
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
 
@@ -127,29 +131,23 @@ app.post('/webhook', async (req, res) => {
     const type = msg.type;
 
     if (type === 'text') {
-      await sendToChatwoot(conversationId, 'text', msg.text.body);
+      await sendToChatwoot(conversationId, 'text', msg.text?.body);
     } else if (type === 'image') {
       await sendToChatwoot(conversationId, 'image', msg.image?.link);
     } else if (type === 'document') {
       await sendToChatwoot(conversationId, 'document', msg.document?.link);
     } else if (type === 'audio') {
       const audioLink = msg.audio?.link;
-      await sendToChatwoot(conversationId, 'audio', audioLink || 'Nota de voz recibida');
+      await sendToChatwoot(conversationId, 'audio', audioLink);
 
       const base64Audio = await audioToBase64(audioLink);
-      try {
-        await axios.post(N8N_WEBHOOK_URL, {
-          phone,
-          name,
-          type,
-          Voice: base64Audio || null,
-          content: audioLink || '[audio]'
-        });
-      } catch (n8nErr) {
-        console.error('❌ Error enviando audio a n8n:', n8nErr.message);
-      }
-
-      return res.sendStatus(200);
+      await axios.post(N8N_WEBHOOK_URL, {
+        phone,
+        name,
+        type,
+        Voice: base64Audio || null,
+        content: audioLink || '[audio]'
+      });
     } else if (type === 'video') {
       await sendToChatwoot(conversationId, 'video', msg.video?.link);
     } else if (type === 'location') {
@@ -160,16 +158,12 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    try {
-      await axios.post(N8N_WEBHOOK_URL, {
-        phone,
-        name,
-        type,
-        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
-      });
-    } catch (n8nErr) {
-      console.error('❌ Error enviando a n8n:', n8nErr.message);
-    }
+    await axios.post(N8N_WEBHOOK_URL, {
+      phone,
+      name,
+      type,
+      content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
+    });
 
     res.sendStatus(200);
   } catch (err) {
