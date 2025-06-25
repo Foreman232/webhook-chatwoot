@@ -17,9 +17,7 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const audioToBase64 = async (url) => {
   try {
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer'
-    });
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
     const contentType = response.headers['content-type'] || 'audio/ogg';
     const base64 = Buffer.from(response.data, 'binary').toString('base64');
     return `data:${contentType};base64,${base64}`;
@@ -56,32 +54,33 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
 
 async function linkContactToInbox(contactId, phone) {
   try {
-    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+    const resp = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
       source_id: `+${phone}`
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+    return resp.data.id;
   } catch (err) {
-    if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error('❌ Inbox link error:', err.message);
+    if (err.response?.data?.message?.includes('has already been taken')) {
+      const inboxesResp = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+      return inboxesResp.data.payload[0]?.id;
     }
+    console.error('❌ Inbox link error:', err.message);
+    return null;
   }
 }
 
-async function getOrCreateConversation(contactId, sourceId) {
+async function getOrCreateConversation(contactInboxId) {
   try {
-    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
-      headers: { api_access_token: CHATWOOT_API_TOKEN }
-    });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID
+    const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
+      contact_inbox_id: contactInboxId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    return newConv.data.id;
+    return response.data.id;
   } catch (err) {
     console.error('❌ Error creando conversación:', err.message);
     return null;
@@ -91,13 +90,13 @@ async function getOrCreateConversation(contactId, sourceId) {
 async function sendToChatwoot(conversationId, type, content) {
   try {
     const payload = {
-      content,
       message_type: 'incoming',
       private: false
     };
     if (['image', 'document', 'audio', 'video'].includes(type)) {
       payload.attachments = [{ file_type: type, file_url: content }];
-      delete payload.content;
+    } else {
+      payload.content = content;
     }
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
@@ -107,7 +106,6 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -128,8 +126,10 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
 
-    await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    const contactInboxId = await linkContactToInbox(contact.id, phone);
+    if (!contactInboxId) return res.sendStatus(500);
+
+    const conversationId = await getOrCreateConversation(contactInboxId);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -137,9 +137,9 @@ app.post('/webhook', async (req, res) => {
     if (type === 'text') {
       await sendToChatwoot(conversationId, 'text', msg.text.body);
     } else if (type === 'image') {
-      await sendToChatwoot(conversationId, 'image', msg.image?.link || 'Imagen recibida');
+      await sendToChatwoot(conversationId, 'image', msg.image?.link);
     } else if (type === 'document') {
-      await sendToChatwoot(conversationId, 'document', msg.document?.link || 'Documento recibido');
+      await sendToChatwoot(conversationId, 'document', msg.document?.link);
     } else if (type === 'audio') {
       const audioLink = msg.audio?.link;
       await sendToChatwoot(conversationId, 'audio', audioLink || 'Nota de voz recibida');
@@ -161,7 +161,7 @@ app.post('/webhook', async (req, res) => {
 
       return res.sendStatus(200);
     } else if (type === 'video') {
-      await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
+      await sendToChatwoot(conversationId, 'video', msg.video?.link);
     } else if (type === 'location') {
       const loc = msg.location;
       const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
@@ -170,7 +170,6 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // Enviar a n8n (solo si no fue audio)
     if (type !== 'audio') {
       try {
         await axios.post(N8N_WEBHOOK_URL, {
