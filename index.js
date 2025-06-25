@@ -143,7 +143,6 @@ app.post('/webhook', async (req, res) => {
     } else if (type === 'audio') {
       const audioLink = msg.audio?.link;
       await sendToChatwoot(conversationId, 'audio', audioLink || 'Nota de voz recibida');
-
       const base64Audio = await audioToBase64(audioLink);
       try {
         await axios.post(N8N_WEBHOOK_URL, {
@@ -158,7 +157,6 @@ app.post('/webhook', async (req, res) => {
       } catch (n8nErr) {
         console.error('❌ Error enviando audio a n8n:', n8nErr.message);
       }
-
       return res.sendStatus(200);
     } else if (type === 'video') {
       await sendToChatwoot(conversationId, 'video', msg.video?.link);
@@ -194,7 +192,6 @@ app.post('/webhook', async (req, res) => {
 
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
-
   if (msg.custom_attributes?.from_n8n) return res.sendStatus(200);
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
 
