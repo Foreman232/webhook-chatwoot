@@ -1,3 +1,4 @@
+// index.js completo actualizado para aceptar duplicados
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -114,7 +115,6 @@ app.post('/webhook', async (req, res) => {
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
     const messageId = msg.id;
-
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
 
@@ -143,9 +143,7 @@ app.post('/webhook', async (req, res) => {
           name,
           type,
           Voice: base64Audio || null,
-          content: audioLink || '[audio]',
-          messageId,
-          conversationId
+          content: audioLink || '[audio]'
         });
       } catch (n8nErr) {
         console.error('❌ Error enviando audio a n8n:', n8nErr.message);
@@ -162,19 +160,15 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    if (type !== 'audio') {
-      try {
-        await axios.post(N8N_WEBHOOK_URL, {
-          phone,
-          name,
-          type,
-          content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]',
-          messageId,
-          conversationId
-        });
-      } catch (n8nErr) {
-        console.error('❌ Error enviando a n8n:', n8nErr.message);
-      }
+    try {
+      await axios.post(N8N_WEBHOOK_URL, {
+        phone,
+        name,
+        type,
+        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
+      });
+    } catch (n8nErr) {
+      console.error('❌ Error enviando a n8n:', n8nErr.message);
     }
 
     res.sendStatus(200);
