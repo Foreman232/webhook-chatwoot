@@ -5,6 +5,8 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
+const seenMessages = new Set();
+
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -114,6 +116,12 @@ app.post('/webhook', async (req, res) => {
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
     const messageId = msg.id;
+    if (seenMessages.has(messageId)) {
+      console.log('⚠️ Mensaje duplicado, ignorado:', messageId);
+      return res.sendStatus(200);
+    }
+    seenMessages.add(messageId);
+    setTimeout(() => seenMessages.delete(messageId), 5 * 60 * 1000);
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
@@ -156,13 +164,12 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link);
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `📍 Ubicación recibida\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // Enviar a n8n (si no es audio)
     if (type !== 'audio') {
       try {
         await axios.post(N8N_WEBHOOK_URL, {
