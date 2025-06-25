@@ -150,7 +150,8 @@ app.post('/webhook', async (req, res) => {
           phone,
           name,
           type,
-          content: base64Audio || '[audio]',
+          Voice: base64Audio || null,
+          content: audioLink || '[audio]',
           messageId,
           conversationId
         });
@@ -158,7 +159,7 @@ app.post('/webhook', async (req, res) => {
         console.error('❌ Error enviando audio a n8n:', n8nErr.message);
       }
 
-      return res.sendStatus(200); // ⚠️ Termina aquí para evitar doble envío
+      return res.sendStatus(200);
     } else if (type === 'video') {
       await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
     } else if (type === 'location') {
@@ -170,17 +171,19 @@ app.post('/webhook', async (req, res) => {
     }
 
     // Enviar a n8n (solo si no fue audio)
-    try {
-      await axios.post(N8N_WEBHOOK_URL, {
-        phone,
-        name,
-        type,
-        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]',
-        messageId,
-        conversationId
-      });
-    } catch (n8nErr) {
-      console.error('❌ Error enviando a n8n:', n8nErr.message);
+    if (type !== 'audio') {
+      try {
+        await axios.post(N8N_WEBHOOK_URL, {
+          phone,
+          name,
+          type,
+          content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]',
+          messageId,
+          conversationId
+        });
+      } catch (n8nErr) {
+        console.error('❌ Error enviando a n8n:', n8nErr.message);
+      }
     }
 
     res.sendStatus(200);
