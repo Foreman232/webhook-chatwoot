@@ -5,9 +5,8 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-const seenMessages = new Set(); // ✅ Control de duplicados
+const seenMessages = new Set();
 
-// ✅ CONFIGURACIÓN ACTUALIZADA
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -15,6 +14,20 @@ const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
+
+const audioToBase64 = async (url) => {
+  try {
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer'
+    });
+    const contentType = response.headers['content-type'] || 'audio/ogg';
+    const base64 = Buffer.from(response.data, 'binary').toString('base64');
+    return `data:${contentType};base64,${base64}`;
+  } catch (err) {
+    console.error('❌ Error al convertir audio a base64:', err.message);
+    return null;
+  }
+};
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
@@ -128,7 +141,24 @@ app.post('/webhook', async (req, res) => {
     } else if (type === 'document') {
       await sendToChatwoot(conversationId, 'document', msg.document?.link || 'Documento recibido');
     } else if (type === 'audio') {
-      await sendToChatwoot(conversationId, 'audio', msg.audio?.link || 'Nota de voz recibida');
+      const audioLink = msg.audio?.link;
+      await sendToChatwoot(conversationId, 'audio', audioLink || 'Nota de voz recibida');
+
+      const base64Audio = await audioToBase64(audioLink);
+      try {
+        await axios.post(N8N_WEBHOOK_URL, {
+          phone,
+          name,
+          type,
+          content: base64Audio || '[audio]',
+          messageId,
+          conversationId
+        });
+      } catch (n8nErr) {
+        console.error('❌ Error enviando audio a n8n:', n8nErr.message);
+      }
+
+      return res.sendStatus(200); // ⚠️ Termina aquí para evitar doble envío
     } else if (type === 'video') {
       await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
     } else if (type === 'location') {
@@ -139,7 +169,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ También lo enviamos a n8n con conversaciónId incluido
+    // Enviar a n8n (solo si no fue audio)
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
@@ -147,7 +177,7 @@ app.post('/webhook', async (req, res) => {
         type,
         content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]',
         messageId,
-        conversationId // ✅ Aquí se incluye para usarlo en n8n
+        conversationId
       });
     } catch (n8nErr) {
       console.error('❌ Error enviando a n8n:', n8nErr.message);
@@ -160,11 +190,9 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Mensaje saliente desde Chatwoot hacia WhatsApp (360dialog)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
 
-  // ❌ Ignora si viene desde n8n
   if (msg.custom_attributes?.from_n8n) return res.sendStatus(200);
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
 
