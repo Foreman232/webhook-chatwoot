@@ -129,7 +129,8 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ También lo enviamos a n8n
+    // 🔕 Desactivado temporalmente el webhook de n8n
+    /*
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
@@ -140,6 +141,7 @@ app.post('/webhook', async (req, res) => {
     } catch (n8nErr) {
       console.error('❌ Error enviando a n8n:', n8nErr.message);
     }
+    */
 
     res.sendStatus(200);
   } catch (err) {
@@ -148,7 +150,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Endpoint para reflejar mensajes salientes desde Streamlit
+// ✅ Reflejar mensajes salientes desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   const { phone, name, message } = req.body;
 
