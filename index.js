@@ -14,6 +14,7 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
+// Función para encontrar o crear contacto en Chatwoot
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -60,6 +61,7 @@ async function getOrCreateConversation(contactId, sourceId) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
       inbox_id: CHATWOOT_INBOX_ID
@@ -92,7 +94,7 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ Webhook entrante desde 360dialog
+// ✅ Webhook de entrada desde WhatsApp (360dialog)
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -110,36 +112,32 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
+    const content = msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]';
 
     if (type === 'text') {
       await sendToChatwoot(conversationId, 'text', msg.text.body);
     } else if (type === 'image') {
-      await sendToChatwoot(conversationId, 'image', msg.image?.link || 'Imagen recibida');
+      await sendToChatwoot(conversationId, 'image', msg.image?.link);
     } else if (type === 'document') {
-      await sendToChatwoot(conversationId, 'document', msg.document?.link || 'Documento recibido');
+      await sendToChatwoot(conversationId, 'document', msg.document?.link);
     } else if (type === 'audio') {
-      await sendToChatwoot(conversationId, 'audio', msg.audio?.link || 'Nota de voz recibida');
+      await sendToChatwoot(conversationId, 'audio', msg.audio?.link);
     } else if (type === 'video') {
-      await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
+      await sendToChatwoot(conversationId, 'video', msg.video?.link);
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `Ubicación 📍 https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ También lo enviamos a n8n
-    try {
-      await axios.post(N8N_WEBHOOK_URL, {
-        phone,
-        name,
-        type,
-        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
-      });
-    } catch (n8nErr) {
-      console.error('❌ Error enviando a n8n:', n8nErr.message);
-    }
+    await axios.post(N8N_WEBHOOK_URL, {
+      phone,
+      name,
+      type,
+      content
+    });
 
     res.sendStatus(200);
   } catch (err) {
@@ -148,7 +146,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Mensaje saliente desde Chatwoot hacia WhatsApp (360dialog)
+// ✅ Webhook de salida desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
@@ -173,6 +171,27 @@ app.post('/outbound', async (req, res) => {
     res.sendStatus(200);
   } catch (err) {
     console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
+    res.sendStatus(500);
+  }
+});
+
+// ✅ Nuevo endpoint para reflejar desde Streamlit
+app.post('/send-chatwoot-message', async (req, res) => {
+  const { phone, name, content } = req.body;
+
+  try {
+    const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
+    if (!contact) return res.sendStatus(500);
+
+    await linkContactToInbox(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    if (!conversationId) return res.sendStatus(500);
+
+    await sendToChatwoot(conversationId, 'text', content);
+    console.log(`✅ Reflejado en Chatwoot: ${content}`);
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Error en /send-chatwoot-message:', err.message);
     res.sendStatus(500);
   }
 });
