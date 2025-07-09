@@ -132,22 +132,38 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ Enviar a n8n
-    try {
-      await axios.post(N8N_WEBHOOK_URL, {
-        phone,
-        name,
-        type,
-        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
-      });
-    } catch (n8nErr) {
-      console.error('❌ Error enviando a n8n:', n8nErr.message);
-    }
+    await axios.post(N8N_WEBHOOK_URL, {
+      phone,
+      name,
+      type,
+      content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
+    });
 
     res.sendStatus(200);
   } catch (err) {
     console.error('❌ Webhook error:', err.message);
     res.sendStatus(500);
+  }
+});
+
+// ✅ Reflejar mensajes enviados por Streamlit
+app.post('/send-chatwoot-message', async (req, res) => {
+  try {
+    const { phone, name, content } = req.body;
+    if (!phone || !content) return res.status(400).send('Número o contenido faltante');
+
+    const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
+    if (!contact) return res.status(500).send('No se pudo crear contacto');
+
+    await linkContactToInbox(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    if (!conversationId) return res.status(500).send('No se pudo obtener conversación');
+
+    await sendToChatwoot(conversationId, 'text', content);
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Error reflejando mensaje masivo:', err.message);
+    res.status(500).send('Error interno');
   }
 });
 
