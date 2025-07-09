@@ -130,13 +130,13 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `Ubicación recibida 📍\nhttps://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ Reenviar a n8n
+    // 🔁 Reenviar a n8n
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
@@ -155,7 +155,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Endpoint: Envío desde Chatwoot hacia WhatsApp
+// ✅ Endpoint: Envío saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
@@ -184,7 +184,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Endpoint: Reflejar mensajes masivos desde Streamlit
+// ✅ Endpoint: Reflejar mensaje masivo desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
