@@ -180,5 +180,26 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
+// ✅ Reflejar mensajes enviados desde Streamlit (masivos)
+app.post('/send-chatwoot-message', async (req, res) => {
+  try {
+    const { phone, name, content } = req.body;
+    if (!phone || !content) return res.status(400).send('Falta teléfono o contenido');
+
+    const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
+    if (!contact) return res.status(500).send('No se pudo crear contacto');
+
+    await linkContactToInbox(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
+
+    await sendToChatwoot(conversationId, 'text', content);
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Error reflejando mensaje masivo:', err.message);
+    res.status(500).send('Error interno al reflejar mensaje');
+  }
+});
+
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
