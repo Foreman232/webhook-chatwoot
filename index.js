@@ -5,7 +5,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ CONFIGURACIÓN ACTUALIZADA
+// ✅ CONFIGURACIÓN
 const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -14,6 +14,7 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
+// 🔁 Buscar o crear contacto en Chatwoot
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -39,6 +40,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
+// 🔁 Vincular contacto con el inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
@@ -54,6 +56,7 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
+// 🔁 Obtener o crear conversación en Chatwoot
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
@@ -74,6 +77,7 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
+// 🔁 Enviar mensaje a Chatwoot
 async function sendToChatwoot(conversationId, type, content) {
   try {
     const payload = {
@@ -95,7 +99,7 @@ async function sendToChatwoot(conversationId, type, content) {
   }
 }
 
-// ✅ Webhook entrante desde 360dialog
+// ✅ Endpoint: Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -132,7 +136,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // ✅ Enviar a n8n
+    // ✅ Reenviar a n8n
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
@@ -151,7 +155,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Mensaje saliente desde Chatwoot hacia WhatsApp
+// ✅ Endpoint: Envío desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
@@ -180,7 +184,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejar mensajes enviados desde Streamlit (masivos)
+// ✅ Endpoint: Reflejar mensajes masivos desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
