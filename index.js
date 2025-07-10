@@ -78,17 +78,17 @@ async function getOrCreateConversation(contactId, sourceId) {
 }
 
 // 🔁 Enviar mensaje a Chatwoot
-async function sendToChatwoot(conversationId, type, content) {
+async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
-      content,
-      message_type: 'incoming',
+      message_type: outgoing ? 'outgoing' : 'incoming',
       private: false
     };
 
-    if (['image', 'document', 'audio', 'video'].includes(type)) {
+    if (["image", "document", "audio", "video"].includes(type)) {
       payload.attachments = [{ file_type: type, file_url: content }];
-      delete payload.content;
+    } else {
+      payload.content = content;
     }
 
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
@@ -136,7 +136,6 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // 🔁 Reenviar a n8n
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
@@ -197,7 +196,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    await sendToChatwoot(conversationId, 'text', content);
+    await sendToChatwoot(conversationId, 'text', content, true);
     return res.sendStatus(200);
   } catch (err) {
     console.error('❌ Error reflejando mensaje masivo:', err.message);
