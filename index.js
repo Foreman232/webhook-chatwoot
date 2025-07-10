@@ -99,7 +99,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   }
 }
 
-// ✅ Endpoint: Webhook entrante desde 360dialog
+// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -154,10 +154,15 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Endpoint: Envío saliente desde Chatwoot hacia WhatsApp
+// ✅ Envío saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
-  if (!msg?.message_type || msg.message_type !== 'outgoing') return res.sendStatus(200);
+
+  if (
+    !msg?.message_type ||
+    msg.message_type !== 'outgoing' ||
+    msg.content?.includes('[streamlit]')
+  ) return res.sendStatus(200);
 
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
   const content = msg.content;
@@ -183,7 +188,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Endpoint: Reflejar mensaje masivo desde Streamlit
+// ✅ Reflejar mensaje masivo desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -196,7 +201,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    await sendToChatwoot(conversationId, 'text', content, true);
+    await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
     return res.sendStatus(200);
   } catch (err) {
     console.error('❌ Error reflejando mensaje masivo:', err.message);
