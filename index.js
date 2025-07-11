@@ -1,9 +1,11 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+
 const app = express();
 app.use(bodyParser.json());
-// :white_check_mark: CONFIGURACIÓN
+
+// ✅ CONFIGURACIÓN
 const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -11,7 +13,8 @@ const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
-// :repeat: Buscar o crear contacto en Chatwoot
+
+// ✅ Buscar o crear contacto en Chatwoot
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -32,11 +35,12 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
       });
       return getResp.data.payload[0];
     }
-    console.error(':x: Contacto error:', err.message);
+    console.error('❌ Contacto error:', err.message);
     return null;
   }
 }
-// :repeat: Vincular contacto con el inbox
+
+// ✅ Vincular contacto con el inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
@@ -47,11 +51,12 @@ async function linkContactToInbox(contactId, phone) {
     });
   } catch (err) {
     if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error(':x: Inbox link error:', err.message);
+      console.error('❌ Inbox link error:', err.message);
     }
   }
 }
-// :repeat: Obtener o crear conversación en Chatwoot
+
+// ✅ Obtener o crear conversación
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
@@ -66,11 +71,12 @@ async function getOrCreateConversation(contactId, sourceId) {
     });
     return newConv.data.id;
   } catch (err) {
-    console.error(':x: Error creando conversación:', err.message);
+    console.error('❌ Error creando conversación:', err.message);
     return null;
   }
 }
-// :repeat: Enviar mensaje a Chatwoot
+
+// ✅ Enviar mensaje a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
@@ -86,10 +92,11 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
-    console.error(':x: Error enviando a Chatwoot:', err.message);
+    console.error('❌ Error enviando a Chatwoot:', err.message);
   }
 }
-// :white_check_mark: Webhook entrante desde 360dialog
+
+// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -98,11 +105,13 @@ app.post('/webhook', async (req, res) => {
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
+
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
     await linkContactToInbox(contact.id, phone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
+
     const type = msg.type;
     if (type === 'text') {
       await sendToChatwoot(conversationId, 'text', msg.text.body);
@@ -116,11 +125,12 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = `:round_pushpin: Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+      const locStr = `📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
+
     try {
       await axios.post(N8N_WEBHOOK_URL, {
         phone,
@@ -129,25 +139,35 @@ app.post('/webhook', async (req, res) => {
         content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
       });
     } catch (n8nErr) {
-      console.error(':x: Error enviando a n8n:', n8nErr.message);
+      console.error('❌ Error enviando a n8n:', n8nErr.message);
     }
+
     res.sendStatus(200);
   } catch (err) {
-    console.error(':x: Webhook error:', err.message);
+    console.error('❌ Webhook error:', err.message);
     res.sendStatus(500);
   }
 });
-// :white_check_mark: Envío saliente desde Chatwoot hacia WhatsApp
+
+// ✅ Envío saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
+
+  // Ignorar si no es outgoing o si viene desde Streamlit
   if (
     !msg?.message_type ||
     msg.message_type !== 'outgoing' ||
     msg.content?.includes('[streamlit]')
   ) return res.sendStatus(200);
+
+  // ✅ Ignorar si no fue enviado por un agente humano
+  const senderType = msg.sender?.type || '';
+  if (senderType !== 'User') return res.sendStatus(200);
+
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
   const content = msg.content;
   if (!number || !content) return res.sendStatus(200);
+
   try {
     await axios.post(D360_API_URL, {
       messaging_product: 'whatsapp',
@@ -160,14 +180,15 @@ app.post('/outbound', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
-    console.log(`:white_check_mark: Enviado a WhatsApp: ${content}`);
+    console.log(`✅ Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
-    console.error(':x: Error enviando a WhatsApp:', err.response?.data || err.message);
+    console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
     res.sendStatus(500);
   }
 });
-// :white_check_mark: Reflejar mensaje masivo desde Streamlit
+
+// ✅ Reflejar mensaje masivo desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -180,9 +201,11 @@ app.post('/send-chatwoot-message', async (req, res) => {
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
     return res.sendStatus(200);
   } catch (err) {
-    console.error(':x: Error reflejando mensaje masivo:', err.message);
+    console.error('❌ Error reflejando mensaje masivo:', err.message);
     res.status(500).send('Error interno al reflejar mensaje');
   }
 });
+
+// 🔊 Iniciar servidor
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`:rocket: Webhook corriendo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
