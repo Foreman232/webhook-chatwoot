@@ -152,13 +152,11 @@ app.post('/webhook', async (req, res) => {
 // ✅ Envío saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
-  const senderType = msg.sender?.type || '';
-  const isStreamlit = msg.content?.includes('[streamlit]');
 
   if (
+    !msg?.message_type ||
     msg.message_type !== 'outgoing' ||
-    isStreamlit ||
-    senderType !== 'User'
+    msg.content?.includes('[streamlit]')
   ) return res.sendStatus(200);
 
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
@@ -206,4 +204,3 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // 🔊 Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
