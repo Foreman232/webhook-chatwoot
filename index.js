@@ -40,16 +40,9 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// 🔁 Vincular contacto con el inbox (versión mejorada)
+// 🔁 Vincular contacto con el inbox
 async function linkContactToInbox(contactId, phone) {
   try {
-    const existing = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}`, {
-      headers: { api_access_token: CHATWOOT_API_TOKEN }
-    });
-
-    const alreadyLinked = existing.data.payload.contact_inboxes.some(ci => ci.inbox_id == CHATWOOT_INBOX_ID);
-    if (alreadyLinked) return;
-
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
       source_id: `+${phone}`
@@ -57,7 +50,9 @@ async function linkContactToInbox(contactId, phone) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
-    console.error('❌ Inbox link error:', err.response?.data || err.message);
+    if (!err.response?.data?.message?.includes('has already been taken')) {
+      console.error('❌ Inbox link error:', err.response?.data || err.message);
+    }
   }
 }
 
@@ -87,7 +82,7 @@ async function getOrCreateConversation(contactId, sourceId) {
 
     return newConv.data.id;
   } catch (err) {
-    console.error('❌ Error creando conversación:', err.message);
+    console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
 }
@@ -128,7 +123,8 @@ app.post('/webhook', async (req, res) => {
     if (!contact) return res.sendStatus(500);
 
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    await new Promise(r => setTimeout(r, 500));
+    const conversationId = await getOrCreateConversation(contact.id, `+${phone}`);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -212,7 +208,6 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     await linkContactToInbox(contact.id, phone);
     await new Promise(r => setTimeout(r, 500));
-
     const conversationId = await getOrCreateConversation(contact.id, `+${phone}`);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
