@@ -14,7 +14,7 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
-// 🔁 Buscar o crear contacto
+// 🔁 Buscar o crear contacto en Chatwoot
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -40,12 +40,12 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// 🔁 Vincular contacto con inbox
-async function linkContactToInbox(contactId, identifier) {
+// 🔁 Vincular contacto con el inbox
+async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: identifier
+      source_id: `+${phone}`
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -56,20 +56,33 @@ async function linkContactToInbox(contactId, identifier) {
   }
 }
 
-// 🔁 Obtener o crear conversación
+// 🔁 Obtener o crear conversación usando contactId (mejor que directo a /conversations)
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
 
-    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
+    if (convRes.data.payload.length > 0) {
+      const convId = convRes.data.payload[0].id;
+
+      // 🔁 Reabrir conversación si estaba cerrada
+      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/toggle_status`, {
+        status: 'open'
+      }, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+
+      return convId;
+    }
+
+    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       source_id: sourceId,
       inbox_id: CHATWOOT_INBOX_ID
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+
     return newConv.data.id;
   } catch (err) {
     console.error('❌ Error creando conversación:', err.message);
@@ -77,7 +90,7 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// 🔁 Enviar mensaje a conversación
+// 🔁 Enviar mensaje a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
@@ -112,7 +125,7 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
 
-    await linkContactToInbox(contact.id, contact.identifier);
+    await linkContactToInbox(contact.id, phone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
 
@@ -154,7 +167,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Mensaje saliente desde Chatwoot
+// ✅ Envío saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
 
@@ -197,11 +210,10 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
-    await linkContactToInbox(contact.id, contact.identifier);
+    await linkContactToInbox(contact.id, phone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    // ✅ Agrega mensaje saliente y visible desde el inicio
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
     return res.sendStatus(200);
   } catch (err) {
