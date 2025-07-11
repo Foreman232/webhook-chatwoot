@@ -154,7 +154,7 @@ app.post('/outbound', async (req, res) => {
   try {
     const msg = req.body;
 
-    if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
+    if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.private || msg.content?.includes('[streamlit]')) {
       return res.sendStatus(200);
     }
 
@@ -219,4 +219,3 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // 🔊 Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
