@@ -1,5 +1,3 @@
-
-// index.js completo corregido
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -20,12 +18,12 @@ const recentlySent = new Set();
 
 // Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
-  const identifier = `+${phone}`;
+  const identifier = phone; // sin '+'
   const payload = {
     inbox_id: CHATWOOT_INBOX_ID,
     name,
     identifier,
-    phone_number: identifier
+    phone_number: `+${phone}` // visualización amigable
   };
   try {
     const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`, payload, {
@@ -44,12 +42,12 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// Vincular contacto con inbox (con source_id limpio sin '+')
+// Vincular contacto con inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: phone
+      source_id: phone // sin '+'
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -60,7 +58,7 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// Obtener o crear conversación con source_id correcto
+// Obtener o crear conversación
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
