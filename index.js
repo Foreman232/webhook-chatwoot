@@ -56,7 +56,7 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// 🔁 Obtener o crear conversación usando contactId (mejor que directo a /conversations)
+// 🔁 Obtener o crear conversación usando contactId
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
@@ -65,14 +65,11 @@ async function getOrCreateConversation(contactId, sourceId) {
 
     if (convRes.data.payload.length > 0) {
       const convId = convRes.data.payload[0].id;
-
-      // 🔁 Reabrir conversación si estaba cerrada
       await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/toggle_status`, {
         status: 'open'
       }, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
-
       return convId;
     }
 
@@ -211,7 +208,9 @@ app.post('/send-chatwoot-message', async (req, res) => {
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    await new Promise(r => setTimeout(r, 500));
+
+    const conversationId = await getOrCreateConversation(contact.id, `+${phone}`);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
