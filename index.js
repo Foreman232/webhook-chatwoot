@@ -1,3 +1,4 @@
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -5,7 +6,6 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ CONFIGURACIÓN
 const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -16,9 +16,8 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const recentlySent = new Set();
 
-// ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
-  const identifier = +${phone};
+  const identifier = `+${phone}`;
   const payload = {
     inbox_id: CHATWOOT_INBOX_ID,
     name,
@@ -26,13 +25,13 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
     phone_number: identifier
   };
   try {
-    const response = await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts, payload, {
+    const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     return response.data.payload;
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const getResp = await axios.get(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}, {
+      const getResp = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
       return getResp.data.payload[0];
@@ -42,12 +41,11 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// ✅ Vincular contacto con inbox
 async function linkContactToInbox(contactId, phone) {
   try {
-    await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes, {
+    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: +${phone}
+      source_id: `+${phone}`
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -58,14 +56,13 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Obtener o crear conversación
 async function getOrCreateConversation(contactId, sourceId) {
   try {
-    const convRes = await axios.get(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations, {
+    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    const newConv = await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations, {
+    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
       inbox_id: CHATWOOT_INBOX_ID
     }, {
@@ -78,7 +75,6 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// ✅ Enviar a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
@@ -90,7 +86,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
     } else {
       payload.content = content;
     }
-    await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages, payload, {
+    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
   } catch (err) {
@@ -98,7 +94,6 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   }
 }
 
-// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -127,7 +122,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = 📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude};
+      const locStr = `📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
@@ -151,16 +146,14 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Envío saliente desde Chatwoot hacia WhatsApp (con control de duplicación)
 app.post('/outbound', async (req, res) => {
   try {
     const msg = req.body;
-
     if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
       return res.sendStatus(200);
     }
 
-    const uniqueKey = msg-${msg.id};
+    const uniqueKey = `msg-${msg.id}`;
     if (recentlySent.has(uniqueKey)) {
       console.log('⚠️ Mensaje ya procesado recientemente');
       return res.sendStatus(200);
@@ -186,13 +179,13 @@ app.post('/outbound', async (req, res) => {
       }
     });
 
-    await axios.patch(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${msg.conversation.id}/messages/${messageId}, {
+    await axios.patch(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${msg.conversation.id}/messages/${messageId}`, {
       external_source_id: 'sent-to-whatsapp'
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
 
-    console.log(✅ Enviado a WhatsApp: ${content});
+    console.log(`✅ Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
     console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
@@ -200,7 +193,6 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejar mensajes desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -218,6 +210,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 
-// 🔊 Iniciar servidor
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(🚀 Webhook corriendo en puerto ${PORT}));
+app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
