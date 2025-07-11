@@ -1,3 +1,12 @@
+// ✅ Normalizador de números para México y otros países
+function normalizePhoneNumber(phone) {
+  phone = phone.replace(/\D/g, '');
+  if (phone.startsWith('521')) return '+' + phone;
+  if (phone.startsWith('52')) return '+521' + phone.slice(2);
+  if (phone.startsWith('1')) return '+521' + phone.slice(1);
+  return '+' + phone;
+}
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -5,7 +14,6 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ CONFIGURACIÓN
 const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -16,9 +24,8 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const recentlySent = new Set();
 
-// ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
-  const identifier = `+${phone}`;
+  const identifier = normalizePhoneNumber(phone);
   const payload = {
     inbox_id: CHATWOOT_INBOX_ID,
     name,
@@ -42,12 +49,11 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// ✅ Vincular contacto con inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: `+${phone}`
+      source_id: normalizePhoneNumber(phone)
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -58,7 +64,6 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Obtener o crear conversación
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
@@ -66,7 +71,7 @@ async function getOrCreateConversation(contactId, sourceId) {
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: sourceId,
+      source_id,
       inbox_id: CHATWOOT_INBOX_ID
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
@@ -78,7 +83,6 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// ✅ Enviar a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
@@ -98,7 +102,6 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   }
 }
 
-// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -108,9 +111,10 @@ app.post('/webhook', async (req, res) => {
     const msg = changes?.messages?.[0];
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
-    const contact = await findOrCreateContact(phone, name);
+    const normalized = normalizePhoneNumber(phone);
+    const contact = await findOrCreateContact(normalized, name);
     if (!contact) return res.sendStatus(500);
-    await linkContactToInbox(contact.id, phone);
+    await linkContactToInbox(contact.id, normalized);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
 
@@ -135,7 +139,7 @@ app.post('/webhook', async (req, res) => {
 
     try {
       await axios.post(N8N_WEBHOOK_URL, {
-        phone,
+        phone: normalized,
         name,
         type,
         content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
@@ -151,15 +155,12 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Envío saliente desde Chatwoot hacia WhatsApp (con control de duplicación)
 app.post('/outbound', async (req, res) => {
   try {
     const msg = req.body;
-
     if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
       return res.sendStatus(200);
     }
-
     const uniqueKey = `msg-${msg.id}`;
     if (recentlySent.has(uniqueKey)) {
       console.log('⚠️ Mensaje ya procesado recientemente');
@@ -168,7 +169,7 @@ app.post('/outbound', async (req, res) => {
     recentlySent.add(uniqueKey);
     setTimeout(() => recentlySent.delete(uniqueKey), 10000);
 
-    const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
+    const number = normalizePhoneNumber(msg.conversation?.meta?.sender?.phone_number || '');
     const content = msg.content;
     const messageId = msg.id;
 
@@ -176,7 +177,7 @@ app.post('/outbound', async (req, res) => {
 
     await axios.post(D360_API_URL, {
       messaging_product: 'whatsapp',
-      to: number,
+      to: number.replace('+', ''),
       type: 'text',
       text: { body: content }
     }, {
@@ -200,14 +201,14 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejar mensajes desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
     if (!phone || !content) return res.status(400).send('Falta teléfono o contenido');
-    const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
+    const normalized = normalizePhoneNumber(phone);
+    const contact = await findOrCreateContact(normalized, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
-    await linkContactToInbox(contact.id, phone);
+    await linkContactToInbox(contact.id, normalized);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
@@ -218,6 +219,6 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 
-// 🔊 Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
