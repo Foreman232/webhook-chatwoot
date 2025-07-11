@@ -152,17 +152,14 @@ app.post('/webhook', async (req, res) => {
 // ✅ Envío saliente desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
-
-  // Ignorar si no es outgoing o si viene desde Streamlit
-  if (
-    !msg?.message_type ||
-    msg.message_type !== 'outgoing' ||
-    msg.content?.includes('[streamlit]')
-  ) return res.sendStatus(200);
-
-  // ✅ Ignorar si no fue enviado por un agente humano
   const senderType = msg.sender?.type || '';
-  if (senderType !== 'User') return res.sendStatus(200);
+  const isStreamlit = msg.content?.includes('[streamlit]');
+
+  if (
+    msg.message_type !== 'outgoing' ||
+    isStreamlit ||
+    senderType !== 'User'
+  ) return res.sendStatus(200);
 
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
   const content = msg.content;
@@ -209,3 +206,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // 🔊 Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
