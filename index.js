@@ -4,16 +4,16 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-// 🔧 CONFIGURACIÓN ACTUALIZADA
-const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
+// ✅ CONFIGURACIÓN ACTUALIZADA
+const CHATWOOT_API_TOKEN = 'orUPYWoDBkCShVrTSRUZsRx';  // Token real de tu instancia
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
-const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
+const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';  // Nuevo dominio Chatwoot
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
-// 📇 Buscar o crear contacto en Chatwoot
+// 🔍 Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -39,7 +39,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// 🔗 Vincular contacto con inbox
+// 📥 Vincular contacto con inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
@@ -75,7 +75,7 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// 📤 Enviar mensaje a Chatwoot
+// 📤 Enviar a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
@@ -95,7 +95,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   }
 }
 
-// 📥 Webhook entrante desde 360dialog
+// 📩 Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -147,7 +147,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 🔄 Mensaje saliente desde Chatwoot hacia WhatsApp
+// 📤 Mensaje desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -178,7 +178,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// 🚀 Reflejar mensaje desde Streamlit
+// ✉️ Mensaje desde Streamlit hacia Chatwoot
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -199,3 +199,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // 🚀 Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
