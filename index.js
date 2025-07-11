@@ -40,48 +40,41 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// 🔁 Vincular contacto con el inbox
+// 🔁 Vincular contacto con el inbox y devolver contact_inbox_id
 async function linkContactToInbox(contactId, phone) {
   try {
-    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+    const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
       source_id: `+${phone}`
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+    return response.data.id; // contact_inbox_id
   } catch (err) {
-    if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error('❌ Inbox link error:', err.message);
+    if (err.response?.data?.message?.includes('has already been taken')) {
+      const existing = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+      return existing.data.payload[0]?.id;
     }
+    console.error('❌ Inbox link error:', err.message);
+    return null;
   }
 }
 
-// 🔁 Obtener o crear conversación usando contactId
-async function getOrCreateConversation(contactId, sourceId) {
+// 🔁 Obtener o crear conversación usando contact_inbox_id
+async function getOrCreateConversation(contactInboxId) {
   try {
-    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
-      headers: { api_access_token: CHATWOOT_API_TOKEN }
-    });
-
-    if (convRes.data.payload.length > 0) {
-      const convId = convRes.data.payload[0].id;
-      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/toggle_status`, {
-        status: 'open'
-      }, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      return convId;
-    }
-
-    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
-      source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID
+    const conv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
+      contact_inbox_id: contactInboxId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-
-    return newConv.data.id;
+    return conv.data.id;
   } catch (err) {
+    if (err.response?.data?.message?.includes('Conversation already exists')) {
+      return err.response.data.conversation_id;
+    }
     console.error('❌ Error creando conversación:', err.message);
     return null;
   }
@@ -122,8 +115,10 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
 
-    await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    const contactInboxId = await linkContactToInbox(contact.id, phone);
+    if (!contactInboxId) return res.sendStatus(500);
+
+    const conversationId = await getOrCreateConversation(contactInboxId);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -207,10 +202,10 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
-    await linkContactToInbox(contact.id, phone);
-    await new Promise(r => setTimeout(r, 500));
+    const contactInboxId = await linkContactToInbox(contact.id, phone);
+    if (!contactInboxId) return res.status(500).send('No se pudo vincular inbox');
 
-    const conversationId = await getOrCreateConversation(contact.id, `+${phone}`);
+    const conversationId = await getOrCreateConversation(contactInboxId);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
