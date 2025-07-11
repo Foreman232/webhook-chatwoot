@@ -4,10 +4,10 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 // :white_check_mark: CONFIGURACIÓN
-const CHATWOOT_API_TOKEN = 'vP4SkyT1VZZVNsYTE6U6xjxP';
+const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
-const BASE_URL = 'https://srv870442.hstgr.cloud/api/v1/accounts';
+const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
