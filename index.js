@@ -1,3 +1,5 @@
+// ✅ index.js actualizado para Chatwoot + 360dialog sin duplicados y sin errores
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -14,10 +16,10 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
-// ✅ Evitar mensajes entrantes duplicados
-const processedMessages = new Set();
+// ✅ Memoria temporal de mensajes procesados
+const lastMessageMap = new Map(); // phone -> { id, timestamp }
 
-// ✅ Buscar o crear contacto en Chatwoot
+// ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -27,23 +29,23 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
     phone_number: identifier
   };
   try {
-    const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`, payload, {
+    const res = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    return response.data.payload;
+    return res.data.payload;
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const getResp = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}`, {
+      const search = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
-      return getResp.data.payload[0];
+      return search.data.payload[0];
     }
     console.error('❌ Contacto error:', err.message);
     return null;
   }
 }
 
-// ✅ Vincular contacto con el inbox
+// ✅ Vincular contacto con inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
@@ -59,21 +61,32 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Obtener o crear conversación
-async function getOrCreateConversation(contactId, sourceId) {
+// ✅ Obtener ID de contact_inbox
+async function getContactInboxId(contactId) {
   try {
-    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+    const res = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID
+    return res.data.payload?.[0]?.id;
+  } catch (err) {
+    console.error('❌ Error obteniendo contact_inbox_id:', err.message);
+    return null;
+  }
+}
+
+// ✅ Crear conversación si no existe
+async function getOrCreateConversation(contactInboxId) {
+  try {
+    const res = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
+      contact_inbox_id: contactInboxId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    return newConv.data.id;
+    return res.data.id;
   } catch (err) {
+    if (err.response?.data?.message?.includes('Conversation already exists')) {
+      return err.response.data?.conversation_id;
+    }
     console.error('❌ Error creando conversación:', err.message);
     return null;
   }
@@ -99,7 +112,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   }
 }
 
-// ✅ Webhook desde 360dialog
+// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -111,15 +124,20 @@ app.post('/webhook', async (req, res) => {
     if (!phone || !messages) return res.sendStatus(200);
 
     for (const msg of messages) {
-      if (msg.from_me) continue;
-      if (processedMessages.has(msg.id)) continue;
-      processedMessages.add(msg.id);
+      if (!msg.type || !msg.id || msg.from_me) continue;
+
+      const last = lastMessageMap.get(phone);
+      if (last && last.id === msg.id) continue;
+      lastMessageMap.set(phone, { id: msg.id, timestamp: Date.now() });
 
       const contact = await findOrCreateContact(phone, name);
       if (!contact) continue;
 
       await linkContactToInbox(contact.id, phone);
-      const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+      const contactInboxId = await getContactInboxId(contact.id);
+      if (!contactInboxId) continue;
+
+      const conversationId = await getOrCreateConversation(contactInboxId);
       if (!conversationId) continue;
 
       const type = msg.type;
@@ -136,14 +154,9 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, type === 'text' ? 'text' : type, content);
 
       try {
-        await axios.post(N8N_WEBHOOK_URL, {
-          phone,
-          name,
-          type,
-          content
-        });
-      } catch (n8nErr) {
-        console.error('❌ Error enviando a n8n:', n8nErr.message);
+        await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
+      } catch (err) {
+        console.error('❌ Error enviando a n8n:', err.message);
       }
     }
 
@@ -154,18 +167,16 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Envío saliente desde Chatwoot hacia WhatsApp
+// ✅ Webhook desde Chatwoot a WhatsApp (salientes)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
 
   if (
     !msg?.message_type ||
     msg.message_type !== 'outgoing' ||
-    msg.content?.includes('[streamlit]')
+    msg.content?.includes('[streamlit]') ||
+    msg.sender?.type !== 'User'
   ) return res.sendStatus(200);
-
-  const senderType = msg.sender?.type || '';
-  if (senderType !== 'User') return res.sendStatus(200);
 
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
   const content = msg.content;
@@ -191,7 +202,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejar mensaje masivo desde Streamlit
+// ✅ Reflejar desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -199,7 +210,9 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    const contactInboxId = await getContactInboxId(contact.id);
+    if (!contactInboxId) return res.status(500).send('No se pudo obtener contact_inbox');
+    const conversationId = await getOrCreateConversation(contactInboxId);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
     return res.sendStatus(200);
