@@ -14,6 +14,8 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
+const recentlySent = new Set();
+
 // ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
@@ -149,20 +151,22 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Envío saliente desde Chatwoot hacia WhatsApp (corregido)
+// ✅ Envío saliente desde Chatwoot hacia WhatsApp (con control de duplicación)
 app.post('/outbound', async (req, res) => {
   try {
     const msg = req.body;
 
-    if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.private || msg.content?.includes('[streamlit]')) {
+    if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
       return res.sendStatus(200);
     }
 
-    // Evita duplicación si ya fue enviado
-    if (msg.external_source_id === 'sent-to-whatsapp') {
-      console.log('⚠️ Ya fue enviado, ignorado');
+    const uniqueKey = `msg-${msg.id}`;
+    if (recentlySent.has(uniqueKey)) {
+      console.log('⚠️ Mensaje ya procesado recientemente');
       return res.sendStatus(200);
     }
+    recentlySent.add(uniqueKey);
+    setTimeout(() => recentlySent.delete(uniqueKey), 10000);
 
     const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
     const content = msg.content;
@@ -170,7 +174,6 @@ app.post('/outbound', async (req, res) => {
 
     if (!number || !content) return res.sendStatus(400);
 
-    // Enviar a WhatsApp
     await axios.post(D360_API_URL, {
       messaging_product: 'whatsapp',
       to: number,
@@ -183,7 +186,6 @@ app.post('/outbound', async (req, res) => {
       }
     });
 
-    // Marcar como ya enviado
     await axios.patch(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${msg.conversation.id}/messages/${messageId}`, {
       external_source_id: 'sent-to-whatsapp'
     }, {
