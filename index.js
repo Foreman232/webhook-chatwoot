@@ -41,51 +41,44 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// ✅ Vincular contacto al inbox (y obtener contact_inbox_id)
+// ✅ Vincular contacto al inbox
 async function linkContactToInbox(contactId, phone) {
   try {
-    const resp = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
       source_id: phone
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    return resp.data.id; // contact_inbox_id
   } catch (err) {
-    if (err.response?.data?.message?.includes('has already been taken')) {
-      const list = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      return list.data.payload[0]?.id;
-    } else {
+    if (!err.response?.data?.message?.includes('has already been taken')) {
       console.error('❌ Inbox link error:', err.message);
-      return null;
     }
   }
 }
 
-// ✅ Obtener o crear conversación con contact_inbox_id
-async function getOrCreateConversation(contactId, contactInboxId, sourceId) {
+// ✅ Obtener o crear conversación (con fallback)
+async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-
-    if (convRes.data.payload.length > 0) {
-      return convRes.data.payload[0].id;
-    }
+    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID,
-      contact_id: contactId,
-      contact_inbox_id: contactInboxId
+      inbox_id: CHATWOOT_INBOX_ID
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-
     return newConv.data.id;
   } catch (err) {
+    if (err.response?.data?.message?.includes('has already been taken')) {
+      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+      if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+    }
     console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
@@ -123,11 +116,8 @@ app.post('/webhook', async (req, res) => {
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
-
-    const contactInboxId = await linkContactToInbox(contact.id, phone);
-    if (!contactInboxId) return res.sendStatus(500);
-
-    const conversationId = await getOrCreateConversation(contact.id, contactInboxId, contact.identifier);
+    await linkContactToInbox(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -204,10 +194,8 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
-    const contactInboxId = await linkContactToInbox(contact.id, phone);
-    if (!contactInboxId) return res.status(500).send('No se pudo vincular inbox');
-
-    const conversationId = await getOrCreateConversation(contact.id, contactInboxId, contact.identifier);
+    await linkContactToInbox(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
