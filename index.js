@@ -15,7 +15,6 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const recentlySent = new Set();
 
-// 🔍 Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = `+${phone}`;
   const payload = {
@@ -41,7 +40,6 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-// 📌 Vincular contacto con inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
@@ -57,23 +55,19 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// 💬 Obtener o crear conversación
-async function getOrCreateConversation(contactId, sourceId) {
+async function getOrCreateConversation(contactId, phone) {
   try {
-    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+    const existing = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+    if (existing.data.payload.length > 0) return existing.data.payload[0].id;
 
-    const inboxRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+    const inboxes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+    const contactInboxId = inboxes.data.payload?.[0]?.id;
 
-    const inboxPayload = inboxRes.data.payload;
-    if (!inboxPayload || inboxPayload.length === 0) {
-      throw new Error('❌ No se encontró ningún contact_inbox_id');
-    }
-    const contactInboxId = inboxPayload[0].id;
+    if (!contactInboxId) throw new Error('No se encontró contact_inbox_id');
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       contact_inbox_id: contactInboxId
@@ -88,7 +82,6 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// ✉️ Enviar mensaje a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   try {
     const payload = {
@@ -108,7 +101,6 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   }
 }
 
-// 📥 Webhook de mensajes entrantes desde WhatsApp
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -120,34 +112,24 @@ app.post('/webhook', async (req, res) => {
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
-
     await linkContactToInbox(contact.id, phone);
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
+    const conversationId = await getOrCreateConversation(contact.id, phone);
 
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
-
-    const type = msg.type;
-    const defaultText = '[Contenido no soportado]';
     let content = '';
-
+    const type = msg.type;
     if (type === 'text') content = msg.text.body;
-    else if (type === 'image') content = msg.image?.link || 'Imagen recibida';
-    else if (type === 'document') content = msg.document?.link || 'Documento recibido';
-    else if (type === 'audio') content = msg.audio?.link || 'Nota de voz recibida';
-    else if (type === 'video') content = msg.video?.link || 'Video recibido';
-    else if (type === 'location') content = `📍 Ubicación: https://maps.google.com/?q=${msg.location.latitude},${msg.location.longitude}`;
-    else content = defaultText;
+    else if (type === 'image') content = msg.image?.link;
+    else if (type === 'document') content = msg.document?.link;
+    else if (type === 'audio') content = msg.audio?.link;
+    else if (type === 'video') content = msg.video?.link;
+    else if (type === 'location') content = `📍 https://maps.google.com/?q=${msg.location.latitude},${msg.location.longitude}`;
+    else content = '[Contenido no soportado]';
 
     if (conversationId) {
       await sendToChatwoot(conversationId, type === 'location' ? 'text' : type, content);
     }
 
-    try {
-      await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
-    } catch (n8nErr) {
-      console.error('❌ Error enviando a n8n:', n8nErr.message);
-    }
-
+    await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
     res.sendStatus(200);
   } catch (err) {
     console.error('❌ Webhook error:', err.message);
@@ -155,7 +137,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 📤 Webhook de salida desde Chatwoot
 app.post('/outbound', async (req, res) => {
   try {
     const msg = req.body;
@@ -194,12 +175,11 @@ app.post('/outbound', async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
+    console.error('❌ Error enviando a WhatsApp:', err.message);
     res.sendStatus(500);
   }
 });
 
-// 📨 Endpoint para reflejar envíos desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -207,11 +187,9 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
-
     await linkContactToInbox(contact.id, phone);
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
 
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    const conversationId = await getOrCreateConversation(contact.id, phone);
     if (!conversationId) return res.status(500).send('No se pudo generar conversación');
 
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
@@ -222,6 +200,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 
-// 🚀 Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
