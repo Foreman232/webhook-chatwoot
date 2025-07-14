@@ -15,9 +15,7 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 const processedMessages = new Set();
 
 function normalizePhone(phone) {
-  if (phone.startsWith('+521')) {
-    return '+52' + phone.slice(4);
-  }
+  if (phone.startsWith('+521')) return '+52' + phone.slice(4);
   return phone;
 }
 
@@ -190,7 +188,7 @@ app.post('/outbound', async (req, res) => {
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     let { phone, name, content } = req.body;
-    phone = normalizePhone(phone); // 👈 FIX para números +521
+    phone = normalizePhone(phone);
 
     if (!phone || !content) return res.status(400).send('Falta teléfono o contenido');
 
@@ -208,6 +206,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
+    await new Promise(resolve => setTimeout(resolve, 1500)); // 👈 Espera adicional
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
     return res.sendStatus(200);
   } catch (err) {
