@@ -57,26 +57,28 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Crear conversación si no existe (FIX aplicado)
+// ✅ Obtener o crear conversación (usando contact.identifier)
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-
-    if (convRes.data.payload.length > 0) {
-      return convRes.data.payload[0].id;
-    }
+    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      inbox_id: CHATWOOT_INBOX_ID,
-      source_id: sourceId
+      source_id: sourceId,
+      inbox_id: CHATWOOT_INBOX_ID
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-
     return newConv.data.id;
   } catch (err) {
+    if (err.response?.data?.message?.includes('has already been taken')) {
+      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+      if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+    }
     console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
@@ -115,7 +117,7 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -183,7 +185,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejo de mensajes desde Streamlit
+// ✅ Reflejo de mensajes enviados desde Streamlit (con FIX de identifier)
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -193,7 +195,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, phone);
+    const conversationId = await getOrCreateConversation(contact.id, contact.identifier); // ✅ FIX aquí
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
