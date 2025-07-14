@@ -4,6 +4,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
+// CONFIGURACIÓN
 const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -14,6 +15,7 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
+// Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = phone;
   const payload = {
@@ -39,6 +41,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
+// Vincular contacto al inbox
 async function linkContactToInbox(contactId, phone) {
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
@@ -54,6 +57,7 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
+// Obtener o crear conversación con reintento
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
@@ -80,22 +84,27 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
+// Enviar mensaje a Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
-  const payload = {
-    message_type: outgoing ? 'outgoing' : 'incoming',
-    private: false
-  };
-  if (["image", "document", "audio", "video"].includes(type)) {
-    payload.attachments = [{ file_type: type, file_url: content }];
-  } else {
-    payload.content = content;
+  try {
+    const payload = {
+      message_type: outgoing ? 'outgoing' : 'incoming',
+      private: false
+    };
+    if (["image", "document", "audio", "video"].includes(type)) {
+      payload.attachments = [{ file_type: type, file_url: content }];
+    } else {
+      payload.content = content;
+    }
+    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
+      headers: { api_access_token: CHATWOOT_API_TOKEN }
+    });
+  } catch (err) {
+    console.error('❌ Error enviando a Chatwoot:', err.message);
   }
-  await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
-    headers: { api_access_token: CHATWOOT_API_TOKEN }
-  });
 }
 
-// 🟢 Webhook 360dialog entrante
+// Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -139,7 +148,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 🟢 Mensajes salientes desde Chatwoot
+// Mensajes salientes desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
 
@@ -176,7 +185,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// 🟢 Reflejo desde Streamlit (con reintentos)
+// Reflejo de mensajes enviados desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -186,32 +195,26 @@ app.post('/send-chatwoot-message', async (req, res) => {
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+
+    // Esperar activamente hasta que la conversación esté lista
+    let conversationId = null;
+    for (let i = 0; i < 5; i++) {
+      conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+      if (conversationId) break;
+      await new Promise(resolve => setTimeout(resolve, 1000)); // espera 1s
+    }
+
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    // ✅ REINTENTO DE ENVÍO SI FALLA
-    let enviado = false;
-    for (let i = 0; i < 5; i++) {
-      try {
-        await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
-        enviado = true;
-        break;
-      } catch (err) {
-        console.warn(`⏳ Reintentando envío a Chatwoot... intento ${i + 1}`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-    if (!enviado) {
-      console.error('❌ No se logró enviar el mensaje a Chatwoot tras varios intentos');
-      return res.status(500).send('No se pudo enviar mensaje a Chatwoot');
-    }
-
+    await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
     return res.sendStatus(200);
+
   } catch (err) {
     console.error('❌ Error reflejando mensaje masivo:', err.message);
     res.status(500).send('Error interno al reflejar mensaje');
   }
 });
 
+// Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
