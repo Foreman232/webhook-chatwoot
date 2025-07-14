@@ -41,10 +41,11 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
 }
 
 async function linkContactToInbox(contactId, phone) {
+  const sourceId = phone.replace('+', '');
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id: `+${phone}`
+      source_id: sourceId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -66,8 +67,9 @@ async function getOrCreateConversation(contactId, sourceId) {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
 
-    const contactInboxId = inboxRes.data.payload[0]?.id;
-    if (!contactInboxId) throw new Error('No se encontró contact_inbox_id');
+    const matchedInbox = inboxRes.data.payload.find(ci => ci.source_id === sourceId);
+    const contactInboxId = matchedInbox?.id;
+    if (!contactInboxId) throw new Error(`No se encontró contact_inbox con source_id = ${sourceId}`);
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       contact_inbox_id: contactInboxId
@@ -114,7 +116,7 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    const conversationId = await getOrCreateConversation(contact.id, phone);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -205,11 +207,15 @@ app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
     if (!phone || !content) return res.status(400).send('Falta teléfono o contenido');
-    const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
+
+    const cleanPhone = phone.replace('+', '');
+    const contact = await findOrCreateContact(cleanPhone, name || 'Cliente WhatsApp');
     if (!contact) return res.status(500).send('No se pudo crear contacto');
-    await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+
+    await linkContactToInbox(contact.id, cleanPhone);
+    const conversationId = await getOrCreateConversation(contact.id, cleanPhone);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
+
     await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
     return res.sendStatus(200);
   } catch (err) {
