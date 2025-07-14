@@ -118,7 +118,7 @@ app.post('/webhook', async (req, res) => {
 
     if (type === 'text') {
       await sendToChatwoot(conversationId, 'text', msg.text.body);
-    } else if (['image', 'document', 'audio', 'video'].includes(type)) {
+    } else if (["image", "document", "audio", "video"].includes(type)) {
       await sendToChatwoot(conversationId, type, content);
     } else if (type === 'location') {
       const loc = msg.location;
@@ -191,7 +191,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    await sendToChatwoot(conversationId, 'text', content + ' [streamlit]', true);
+    await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
     return res.sendStatus(200);
   } catch (err) {
     console.error('❌ Error reflejando mensaje masivo:', err.message);
