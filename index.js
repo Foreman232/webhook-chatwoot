@@ -15,7 +15,10 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 const processedMessages = new Set();
 
 function normalizePhone(phone) {
-  return phone.startsWith('+521') ? '+52' + phone.slice(4) : phone;
+  if (phone.startsWith('+521')) {
+    return '+52' + phone.slice(4);
+  }
+  return phone;
 }
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
@@ -186,7 +189,9 @@ app.post('/outbound', async (req, res) => {
 
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
-    const { phone, name, content } = req.body;
+    let { phone, name, content } = req.body;
+    phone = normalizePhone(phone); // 👈 FIX para números +521
+
     if (!phone || !content) return res.status(400).send('Falta teléfono o contenido');
 
     const contact = await findOrCreateContact(phone, name || 'Cliente WhatsApp');
