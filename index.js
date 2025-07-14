@@ -4,7 +4,7 @@ const axios = require('axios');
 const app = express();
 app.use(bodyParser.json());
 
-// 🔧 CONFIGURACIÓN
+// ✅ CONFIGURACIÓN
 const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
@@ -17,11 +17,12 @@ const processedMessages = new Set();
 
 // ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
+  const identifier = phone;
   const payload = {
     inbox_id: CHATWOOT_INBOX_ID,
     name,
-    identifier: phone,
-    phone_number: phone
+    identifier,
+    phone_number: identifier
   };
   try {
     const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`, payload, {
@@ -30,7 +31,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
     return response.data.payload;
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const getResp = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${phone}`, {
+      const getResp = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
       return getResp.data.payload[0];
@@ -56,28 +57,26 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Obtener o crear conversación (uso de fallback si no existe)
+// ✅ Crear conversación si no existe (FIX aplicado)
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+
+    if (convRes.data.payload.length > 0) {
+      return convRes.data.payload[0].id;
+    }
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID
+      inbox_id: CHATWOOT_INBOX_ID,
+      source_id: sourceId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+
     return newConv.data.id;
   } catch (err) {
-    if (err.response?.data?.message?.includes('has already been taken')) {
-      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    }
     console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
@@ -184,7 +183,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejo de mensajes enviados desde Streamlit
+// ✅ Reflejo de mensajes desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -194,19 +193,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
     await linkContactToInbox(contact.id, phone);
-
-    // 🔥 Forzar conversación si no existe
-    let conversationId = await getOrCreateConversation(contact.id, phone);
-    if (!conversationId) {
-      const convRes = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-        inbox_id: CHATWOOT_INBOX_ID,
-        source_id: phone
-      }, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      conversationId = convRes.data.id;
-    }
-
+    const conversationId = await getOrCreateConversation(contact.id, phone);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
