@@ -46,42 +46,42 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
 async function linkContactToInbox(contactId, phone) {
   const normalized = normalizePhone(phone);
   try {
-    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+    const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
       source_id: normalized
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+    return response.data.id;
   } catch (err) {
     if (!err.response?.data?.message?.includes('has already been taken')) {
       console.error('❌ Inbox link error:', err.message);
     }
+    return null;
   }
 }
 
 async function getOrCreateConversation(contactId, phone) {
-  const normalized = normalizePhone(phone);
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
 
+    const contactInboxRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+      headers: { api_access_token: CHATWOOT_API_TOKEN }
+    });
+
+    const contact_inbox_id = contactInboxRes.data.payload?.[0]?.id;
+    if (!contact_inbox_id) throw new Error('No se encontró contact_inbox_id');
+
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: normalized,
-      inbox_id: CHATWOOT_INBOX_ID,
-      contact_id: contactId
+      contact_inbox_id
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     return newConv.data.id;
   } catch (err) {
-    if (err.response?.data?.message?.includes('has already been taken')) {
-      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    }
     console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
@@ -205,7 +205,6 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
     return res.sendStatus(200);
-
   } catch (err) {
     console.error('❌ Error reflejando mensaje masivo:', err.message);
     res.status(500).send('Error interno al reflejar mensaje');
