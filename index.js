@@ -57,7 +57,7 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Obtener o crear conversación
+// ✅ Obtener o crear conversación (con fallback)
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
@@ -198,8 +198,8 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    // ⏱️ Esperar 500ms para asegurar que la conversación esté lista
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // ⏳ Espera para asegurar que Chatwoot esté listo
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
     return res.sendStatus(200);
