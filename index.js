@@ -14,7 +14,6 @@ const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
 const processedMessages = new Set();
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
@@ -152,7 +151,6 @@ app.post('/webhook', async (req, res) => {
 // ✅ Mensajes salientes desde Chatwoot hacia WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
-
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
     return res.sendStatus(200);
   }
@@ -196,11 +194,17 @@ app.post('/send-chatwoot-message', async (req, res) => {
     if (!contact) return res.status(500).send('No se pudo crear contacto');
 
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
-    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    // ✅ Espera para que Chatwoot registre bien la conversación
-    await sleep(1500);
+    // 🔁 Esperar hasta que se cree correctamente la conversación
+    let conversationId = null;
+    for (let i = 0; i < 5; i++) {
+      conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+      if (conversationId) break;
+      console.log(`⏳ Esperando conversación... intento ${i + 1}`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
     return res.sendStatus(200);
