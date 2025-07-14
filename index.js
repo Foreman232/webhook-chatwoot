@@ -13,7 +13,7 @@ const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
 const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
-const processedMessages = new Set(); // Evitar duplicados
+const processedMessages = new Set();
 
 // ✅ Buscar o crear contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
@@ -114,16 +114,12 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
+    const content = msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]';
+
     if (type === 'text') {
       await sendToChatwoot(conversationId, 'text', msg.text.body);
-    } else if (type === 'image') {
-      await sendToChatwoot(conversationId, 'image', msg.image?.link || 'Imagen recibida');
-    } else if (type === 'document') {
-      await sendToChatwoot(conversationId, 'document', msg.document?.link || 'Documento recibido');
-    } else if (type === 'audio') {
-      await sendToChatwoot(conversationId, 'audio', msg.audio?.link || 'Nota de voz recibida');
-    } else if (type === 'video') {
-      await sendToChatwoot(conversationId, 'video', msg.video?.link || 'Video recibido');
+    } else if (['image', 'document', 'audio', 'video'].includes(type)) {
+      await sendToChatwoot(conversationId, type, content);
     } else if (type === 'location') {
       const loc = msg.location;
       const locStr = `📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
@@ -132,14 +128,8 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    // 🔁 Enviar a n8n
     try {
-      await axios.post(N8N_WEBHOOK_URL, {
-        phone,
-        name,
-        type,
-        content: msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]'
-      });
+      await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
     } catch (n8nErr) {
       console.error('❌ Error enviando a n8n:', n8nErr.message);
     }
@@ -155,11 +145,9 @@ app.post('/webhook', async (req, res) => {
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
 
-  if (
-    !msg?.message_type ||
-    msg.message_type !== 'outgoing' ||
-    msg.content?.includes('[streamlit]')
-  ) return res.sendStatus(200);
+  if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
+    return res.sendStatus(200);
+  }
 
   const messageId = msg.id;
   const number = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
@@ -169,6 +157,7 @@ app.post('/outbound', async (req, res) => {
   processedMessages.add(messageId);
 
   if (!number || !content) return res.sendStatus(200);
+
   try {
     await axios.post(D360_API_URL, {
       messaging_product: 'whatsapp',
