@@ -57,13 +57,16 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-// ✅ Obtener o crear conversación (con fallback)
+// ✅ Obtener o crear conversación (manejo robusto de duplicados)
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+
+    if (convRes.data.payload.length > 0) {
+      return convRes.data.payload[0].id;
+    }
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
@@ -71,14 +74,19 @@ async function getOrCreateConversation(contactId, sourceId) {
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+
     return newConv.data.id;
+
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+      const retryConv = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
-      if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+      if (retryConv.data.payload.length > 0) {
+        return retryConv.data.payload[0].id;
+      }
     }
+
     console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
