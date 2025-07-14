@@ -67,7 +67,8 @@ async function getOrCreateConversation(contactId, sourceId) {
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID
+      inbox_id: CHATWOOT_INBOX_ID,
+      contact_id: contactId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -201,7 +202,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     for (let i = 0; i < 5; i++) {
       conversationId = await getOrCreateConversation(contact.id, contact.identifier);
       if (conversationId) break;
-      await new Promise(resolve => setTimeout(resolve, 1000)); // espera 1s
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     if (!conversationId) return res.status(500).send('No se pudo crear conversación');
@@ -215,6 +216,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 
-// Iniciar servidor
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
