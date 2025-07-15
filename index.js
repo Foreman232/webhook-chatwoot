@@ -1,4 +1,4 @@
-// index.js COMPLETO ACTUALIZADO
+// index.js COMPLETO CON FIX DE DUPLICADOS
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -15,7 +15,13 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
-// Normaliza a +521 para MX
+// Limpieza de cache cada hora
+setInterval(() => {
+  processedMessages.clear();
+  console.log('🧹 Limpiado cache de mensajes procesados');
+}, 60 * 60 * 1000);
+
+// Normaliza a +521 para MX y +502 para GT
 function normalizePhone(phone) {
   phone = phone.replace(/\D/g, '');
   if (phone.startsWith('521')) return '+521' + phone.slice(3);
@@ -127,6 +133,10 @@ app.post('/webhook', async (req, res) => {
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
+
+    const msgId = msg.id;
+    if (processedMessages.has(msgId)) return res.sendStatus(200);
+    processedMessages.add(msgId);
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
