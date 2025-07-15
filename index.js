@@ -20,13 +20,13 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
     phone_number: identifier
   };
   try {
-    const response = await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts, payload, {
+    const response = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`, payload, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     return response.data.payload;
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const getResp = await axios.get(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}, {
+      const getResp = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
       return getResp.data.payload[0];
@@ -37,7 +37,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
 }
 async function linkContactToInbox(contactId, phone) {
   try {
-    await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes, {
+    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
       source_id: phone
     }, {
@@ -51,11 +51,11 @@ async function linkContactToInbox(contactId, phone) {
 }
 async function getOrCreateConversation(contactId, sourceId) {
   try {
-    const convRes = await axios.get(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations, {
+    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    const newConv = await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations, {
+    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
       source_id: sourceId,
       inbox_id: CHATWOOT_INBOX_ID
     }, {
@@ -64,7 +64,7 @@ async function getOrCreateConversation(contactId, sourceId) {
     return newConv.data.id;
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const convRes = await axios.get(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations, {
+      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
       if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
@@ -83,7 +83,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   } else {
     payload.content = content;
   }
-  await axios.post(${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages, payload, {
+  await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`, payload, {
     headers: { api_access_token: CHATWOOT_API_TOKEN }
   });
 }
@@ -92,7 +92,7 @@ app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0]?.value;
-    const phone = +${changes?.contacts?.[0]?.wa_id};
+    const phone = `+${changes?.contacts?.[0]?.wa_id}`;
     const name = changes?.contacts?.[0]?.profile?.name;
     const msg = changes?.messages?.[0];
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
@@ -109,7 +109,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, type, content);
     } else if (type === 'location') {
       const loc = msg.location;
-      const locStr = :round_pushpin: Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude};
+      const locStr = `:round_pushpin: Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
       await sendToChatwoot(conversationId, 'text', locStr);
     } else {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
@@ -149,7 +149,7 @@ app.post('/outbound', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
-    console.log(:white_check_mark: Enviado a WhatsApp: ${content});
+    console.log(`:white_check_mark: Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
     console.error(':x: Error enviando a WhatsApp:', err.response?.data || err.message);
@@ -170,11 +170,11 @@ app.post('/send-chatwoot-message', async (req, res) => {
     let enviado = false;
     for (let i = 0; i < 5; i++) {
       try {
-        await sendToChatwoot(conversationId, 'text', ${content}[streamlit], true);
+        await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
         enviado = true;
         break;
       } catch (err) {
-        console.warn(:hourglass_flowing_sand: Reintentando envío a Chatwoot... intento ${i + 1});
+        console.warn(`:hourglass_flowing_sand: Reintentando envío a Chatwoot... intento ${i + 1}`);
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
@@ -189,4 +189,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(:rocket: Webhook corriendo en puerto ${PORT}));
+app.listen(PORT, () => console.log(`:rocket: Webhook corriendo en puerto ${PORT}`));
