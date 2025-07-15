@@ -14,9 +14,12 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
+// ✅ Normaliza el número: siempre +521 para México
 function normalizePhone(phone) {
-  if (phone.startsWith('+521')) return '+52' + phone.slice(4);
-  return phone;
+  phone = phone.replace(/\D/g, '');
+  if (phone.startsWith('52')) return '+521' + phone.slice(2);
+  if (phone.startsWith('502')) return '+502' + phone.slice(3);
+  return '+' + phone;
 }
 
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
@@ -71,7 +74,7 @@ async function getContactInboxId(contactId, phone, maxRetries = 10) {
       const inboxMatch = inboxes.find(i => i.source_id === normalized);
       if (inboxMatch?.id) return inboxMatch.id;
     } catch (err) {
-      console.error(`❌ Intento ${i + 1} - error obteniendo contact_inbox_id:`, err.message);
+      console.error(`❌ Intento ${i + 1} - contact_inbox_id:`, err.message);
     }
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
@@ -115,7 +118,6 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
-// Entrante desde WhatsApp (360dialog)
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -161,7 +163,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Mensajes salientes desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -197,7 +198,6 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// Mensajes desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     let { phone, name, content } = req.body;
