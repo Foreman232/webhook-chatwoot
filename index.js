@@ -1,3 +1,4 @@
+// index.js COMPLETO ACTUALIZADO
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -14,6 +15,7 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
+// Normaliza a +521 para MX
 function normalizePhone(phone) {
   phone = phone.replace(/\D/g, '');
   if (phone.startsWith('521')) return '+521' + phone.slice(3);
@@ -63,22 +65,19 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-async function getContactInboxId(contactId, phone, maxRetries = 10) {
+async function getContactInboxId(contactId, phone) {
   const normalized = normalizePhone(phone);
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      const inboxes = response.data.payload || [];
-      const inboxMatch = inboxes.find(i => i.source_id === normalized);
-      if (inboxMatch?.id) return inboxMatch.id;
-    } catch (err) {
-      console.error(`❌ Intento ${i + 1} - contact_inbox_id:`, err.message);
-    }
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  try {
+    const response = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
+      headers: { api_access_token: CHATWOOT_API_TOKEN }
+    });
+    const inboxes = response.data.payload || [];
+    const match = inboxes.find(i => i.source_id === normalized || i.source_id === normalized.replace('+521', '+52'));
+    return match?.id || null;
+  } catch (err) {
+    console.error('❌ getContactInboxId error:', err.message);
+    return null;
   }
-  return null;
 }
 
 async function getOrCreateConversation(contactId, phone) {
@@ -98,7 +97,7 @@ async function getOrCreateConversation(contactId, phone) {
     });
     return newConv.data.id;
   } catch (err) {
-    console.error('❌ Error creando conversación:', err.response?.data || err.message);
+    console.error('❌ Crear conversación error:', err.message);
     return null;
   }
 }
@@ -118,7 +117,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
-// WhatsApp entrante
+// Webhook entrante de WhatsApp
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -137,7 +136,7 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
-    const content = msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]';
+    const content = msg[type]?.body || msg[type]?.caption || '[media]';
 
     if (type === 'text') {
       await sendToChatwoot(conversationId, 'text', msg.text.body);
@@ -151,12 +150,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
-    try {
-      await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
-    } catch (n8nErr) {
-      console.error('❌ Error enviando a n8n:', n8nErr.message);
-    }
-
+    await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
     res.sendStatus(200);
   } catch (err) {
     console.error('❌ Webhook error:', err.message);
@@ -164,7 +158,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Salientes desde Chatwoot
+// Mensajes salientes desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -195,12 +189,12 @@ app.post('/outbound', async (req, res) => {
     console.log(`✅ Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Error enviando a WhatsApp:', err.response?.data || err.message);
+    console.error('❌ Error enviando a WhatsApp:', err.message);
     res.sendStatus(500);
   }
 });
 
-// Reflejo desde Streamlit
+// Mensajes masivos desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     let { phone, name, content } = req.body;
