@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-import time
 
 st.set_page_config(page_title="📨 Envío Masivo WhatsApp", layout="centered")
 st.title("📨 Envío Masivo de WhatsApp con Plantillas")
@@ -12,7 +11,6 @@ if "ya_ejecuto" not in st.session_state:
 api_key = st.text_input("🔐 Ingresa tu API Key de 360dialog", type="password")
 file = st.file_uploader("📁 Sube tu archivo Excel", type=["xlsx"])
 
-# Plantillas disponibles
 plantillas = {
     "mensaje_entre_semana_24_hrs": lambda localidad: f"""Buen día, te saludamos de CHEP (Tarimas azules), es un gusto en saludarte.
 
@@ -23,7 +21,6 @@ Te escribo para confirmar que el día de mañana tenemos programada la recolecci
     "recordatorio_24_hrs": lambda: "Buen día, estamos siguiendo tu solicitud, ¿Me ayudarías a confirmar si puedo validar la cantidad de tarimas que serán entregadas?"
 }
 
-# Formato internacional para WhatsApp
 def normalizar_numero(phone):
     if phone.startswith("+521"):
         return "+52" + phone[4:]
@@ -50,7 +47,6 @@ if file:
         st.session_state["ya_ejecuto"] = True
 
         for idx, row in df.iterrows():
-            # Construcción de número
             raw_number = f"{str(row[pais_col])}{str(row[telefono_col])}".replace(" ", "").replace("-", "")
             chatwoot_number = f"+{raw_number}"
             whatsapp_number = normalizar_numero(chatwoot_number)
@@ -76,7 +72,7 @@ if file:
                     parameters.append({"type": "text", "text": param2})
                 mensaje_real = plantillas.get(plantilla_nombre, lambda x: f"Mensaje enviado con parámetro: {x}")(param1)
 
-            # 1. Enviar mensaje por WhatsApp
+            # Enviar mensaje por WhatsApp
             payload = {
                 "messaging_product": "whatsapp",
                 "to": whatsapp_number.replace("+", ""),
@@ -105,7 +101,7 @@ if file:
             if r.status_code == 200:
                 st.success(f"✅ WhatsApp enviado: {whatsapp_number}")
 
-                # 2. Reflejar mensaje en Chatwoot
+                # Reflejar en Chatwoot
                 chatwoot_payload = {
                     "phone": chatwoot_number,
                     "name": nombre or "Cliente WhatsApp",
@@ -117,8 +113,8 @@ if file:
                     if cw.status_code == 200:
                         st.info(f"📥 Reflejado en Chatwoot: {chatwoot_number}")
                     else:
-                        st.warning(f"⚠️ Chatwoot error ({chatwoot_number}): {cw.text}")
+                        st.warning(f"⚠️ Chatwoot error: {cw.text}")
                 except Exception as e:
-                    st.error(f"❌ Error al reflejar en Chatwoot: {e}")
+                    st.error(f"❌ Error Chatwoot: {e}")
             else:
-                st.error(f"❌ WhatsApp error ({whatsapp_number}): {r.text}")
+                st.error(f"❌ WhatsApp error: {r.text}")
