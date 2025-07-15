@@ -14,7 +14,6 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
-// 🔧 Normaliza número de México
 function normalizePhone(phone) {
   if (phone.startsWith('+521')) return '+52' + phone.slice(4);
   return phone;
@@ -61,31 +60,30 @@ async function linkContactToInbox(contactId, phone) {
   }
 }
 
-async function getOrCreateConversation(contactId, phone) {
-  const normalized = normalizePhone(phone);
+async function getContactInboxId(contactId) {
   try {
-    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+    const response = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-
-    const contactInboxRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
-      headers: { api_access_token: CHATWOOT_API_TOKEN }
-    });
-
-    const contact_inbox_id = contactInboxRes.data.payload?.[0]?.id;
+    const contact_inbox_id = response.data.payload?.[0]?.id;
     if (!contact_inbox_id) throw new Error('No se encontró contact_inbox_id');
-
-    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      contact_inbox_id
-    }, {
-      headers: { api_access_token: CHATWOOT_API_TOKEN }
-    });
-    return newConv.data.id;
+    return contact_inbox_id;
   } catch (err) {
-    console.error('❌ Error creando conversación:', err.response?.data || err.message);
+    console.error('❌ Error obteniendo contact_inbox_id:', err.message);
     return null;
   }
+}
+
+async function sendToChatwootWithInboxId(contact_inbox_id, content) {
+  const payload = {
+    message_type: 'outgoing',
+    content,
+    private: false,
+    contact_inbox_id
+  };
+  await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/messages`, payload, {
+    headers: { api_access_token: CHATWOOT_API_TOKEN }
+  });
 }
 
 async function sendToChatwoot(conversationId, type, content, outgoing = false) {
@@ -103,7 +101,6 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
-// 📥 Webhook 360dialog entrante
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -118,7 +115,10 @@ app.post('/webhook', async (req, res) => {
     if (!contact) return res.sendStatus(500);
 
     await linkContactToInbox(contact.id, phone);
-    const conversationId = await getOrCreateConversation(contact.id, phone);
+    const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contact.id}/conversations`, {
+      headers: { api_access_token: CHATWOOT_API_TOKEN }
+    });
+    const conversationId = convRes.data.payload?.[0]?.id;
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -149,7 +149,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 📤 Mensajes salientes desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -185,7 +184,6 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// 📤 Reflejo desde Streamlit (con reintentos)
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     let { phone, name, content } = req.body;
@@ -198,16 +196,16 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     await linkContactToInbox(contact.id, phone);
 
-    let conversationId = null;
+    let contact_inbox_id = null;
     for (let i = 0; i < 5; i++) {
-      conversationId = await getOrCreateConversation(contact.id, phone);
-      if (conversationId) break;
+      contact_inbox_id = await getContactInboxId(contact.id);
+      if (contact_inbox_id) break;
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
+    if (!contact_inbox_id) return res.status(500).send('No se pudo obtener contact_inbox_id');
 
-    await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
+    await sendToChatwootWithInboxId(contact_inbox_id, `${content}[streamlit]`);
     return res.sendStatus(200);
   } catch (err) {
     console.error('❌ Error reflejando mensaje masivo:', err.message);
