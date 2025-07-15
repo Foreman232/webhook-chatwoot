@@ -14,9 +14,10 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
-function normalizePhone(phone, forWhatsApp = false) {
+function normalizePhone(phone) {
   phone = phone.replace(/\D/g, '');
-  if (phone.startsWith('52')) return forWhatsApp ? '+521' + phone.slice(2) : '+52' + phone.slice(2);
+  if (phone.startsWith('521')) return '+521' + phone.slice(3);
+  if (phone.startsWith('52')) return '+521' + phone.slice(2);
   if (phone.startsWith('502')) return '+502' + phone.slice(3);
   return '+' + phone;
 }
@@ -47,11 +48,11 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
 }
 
 async function linkContactToInbox(contactId, phone) {
-  const source_id = phone.startsWith('+521') ? phone.replace('+521', '+52') : phone;
+  const normalized = normalizePhone(phone);
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
-      source_id
+      source_id: normalized
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -63,14 +64,14 @@ async function linkContactToInbox(contactId, phone) {
 }
 
 async function getContactInboxId(contactId, phone, maxRetries = 10) {
-  const source_id = phone.startsWith('+521') ? phone.replace('+521', '+52') : phone;
+  const normalized = normalizePhone(phone);
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
       const inboxes = response.data.payload || [];
-      const inboxMatch = inboxes.find(i => i.source_id === source_id);
+      const inboxMatch = inboxes.find(i => i.source_id === normalized);
       if (inboxMatch?.id) return inboxMatch.id;
     } catch (err) {
       console.error(`❌ Intento ${i + 1} - contact_inbox_id:`, err.message);
@@ -117,6 +118,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
+// WhatsApp entrante
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -162,6 +164,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// Salientes desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -180,7 +183,7 @@ app.post('/outbound', async (req, res) => {
   try {
     await axios.post(D360_API_URL, {
       messaging_product: 'whatsapp',
-      to: normalizePhone(number, true).replace('+', ''),
+      to: number,
       type: 'text',
       text: { body: content }
     }, {
@@ -197,6 +200,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
+// Reflejo desde Streamlit
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     let { phone, name, content } = req.body;
