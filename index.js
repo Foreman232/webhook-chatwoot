@@ -218,8 +218,16 @@ app.post('/send-chatwoot-message', async (req, res) => {
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
       conversationId = await getOrCreateConversation(contact.id, sourceId);
-      if (conversationId) break;
-      console.warn(`⏳ Esperando conversación... intento ${i + 1}`);
+      if (conversationId) {
+        try {
+          const check = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}`, {
+            headers: { api_access_token: CHATWOOT_API_TOKEN }
+          });
+          if (check.status === 200) break;
+        } catch (err) {
+          console.warn(`⏳ Conversación aún no lista... intento ${i + 1}`);
+        }
+      }
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
