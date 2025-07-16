@@ -14,7 +14,6 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 
 const processedMessages = new Set();
 
-// ✅ Normalizar número para México
 function normalizarNumero(numero) {
   if (numero.startsWith("+52") && !numero.startsWith("+521")) {
     return "+521" + numero.slice(3);
@@ -105,7 +104,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
-// :large_green_circle: Webhook 360dialog entrante
+// ✅ Webhook entrante desde 360dialog
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -121,7 +120,6 @@ app.post('/webhook', async (req, res) => {
     if (!contact) return res.sendStatus(500);
 
     await linkContactToInbox(contact.id, phone);
-
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
 
@@ -153,7 +151,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// :large_green_circle: Mensajes salientes desde Chatwoot
+// ✅ Mensajes salientes desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -171,6 +169,7 @@ app.post('/outbound', async (req, res) => {
   if (!number || !content) return res.sendStatus(200);
 
   try {
+    console.log(`📤 Enviando a WhatsApp: ${number} | ${content}`);
     await axios.post(D360_API_URL, {
       messaging_product: 'whatsapp',
       to: number,
@@ -182,7 +181,6 @@ app.post('/outbound', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
-    console.log(`✅ Enviado a WhatsApp: ${content}`);
     res.sendStatus(200);
   } catch (err) {
     console.error(':x: Error enviando a WhatsApp:', err.response?.data || err.message);
@@ -190,19 +188,29 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// :large_green_circle: Reflejo desde Streamlit
+// ✅ Reflejo desde Streamlit con validaciones y logs
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
-    const normalizedPhone = normalizarNumero(phone);
-    if (!normalizedPhone || !content) return res.status(400).send('Falta teléfono o contenido');
+    const normalizedPhone = normalizarNumero(phone?.trim?.());
+
+    if (!normalizedPhone || !content || typeof content !== 'string' || content.trim() === '') {
+      console.warn("⚠️ Datos incompletos para reflejar en Chatwoot:", { phone, content });
+      return res.status(400).send('Faltan datos válidos para enviar mensaje');
+    }
+
+    console.log("📥 Reflejando mensaje desde Streamlit:", {
+      phone: normalizedPhone,
+      name,
+      content
+    });
 
     const contact = await findOrCreateContact(normalizedPhone, name || 'Cliente WhatsApp');
-    if (!contact) return res.status(500).send('No se pudo crear contacto');
+    if (!contact) return res.status(500).send('Error al crear contacto');
 
     await linkContactToInbox(contact.id, normalizedPhone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
-    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
+    if (!conversationId) return res.status(500).send('Error al crear conversación');
 
     let enviado = false;
     for (let i = 0; i < 5; i++) {
@@ -211,19 +219,19 @@ app.post('/send-chatwoot-message', async (req, res) => {
         enviado = true;
         break;
       } catch (err) {
-        console.warn(`⏳ Reintentando envío a Chatwoot... intento ${i + 1}`);
+        console.warn(`⏳ Reintentando envío a Chatwoot... intento ${i + 1}`, err.response?.data || err.message);
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
     if (!enviado) {
-      console.error(':x: No se logró enviar el mensaje a Chatwoot tras varios intentos');
-      return res.status(500).send('No se pudo enviar mensaje a Chatwoot');
+      console.error(':x: No se logró reflejar mensaje en Chatwoot tras varios intentos');
+      return res.status(500).send('No se pudo reflejar mensaje en Chatwoot');
     }
 
     return res.sendStatus(200);
   } catch (err) {
-    console.error(':x: Error reflejando mensaje masivo:', err.message);
+    console.error(':x: Error general en /send-chatwoot-message:', err.message);
     res.status(500).send('Error interno al reflejar mensaje');
   }
 });
