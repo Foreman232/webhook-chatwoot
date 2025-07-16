@@ -104,7 +104,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
-// ✅ Webhook entrante desde 360dialog
+// ✅ Webhook entrante desde 360dialog con control de duplicados
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -115,6 +115,10 @@ app.post('/webhook', async (req, res) => {
     const msg = changes?.messages?.[0];
 
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
+
+    const messageId = msg.id;
+    if (processedMessages.has(messageId)) return res.sendStatus(200);
+    processedMessages.add(messageId);
 
     const contact = await findOrCreateContact(phone, name);
     if (!contact) return res.sendStatus(500);
