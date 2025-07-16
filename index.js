@@ -15,6 +15,7 @@ const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c
 const processedMessages = new Set();
 
 function normalizarNumero(numero) {
+  if (!numero || typeof numero !== 'string') return '';
   if (numero.startsWith("+52") && !numero.startsWith("+521")) {
     return "+521" + numero.slice(3);
   }
@@ -48,6 +49,10 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
 
 async function linkContactToInbox(contactId, phone) {
   const sourceId = normalizarNumero(phone);
+  if (!contactId) {
+    console.warn(':warning: No se puede vincular inbox, contactId inválido');
+    return;
+  }
   try {
     await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
       inbox_id: CHATWOOT_INBOX_ID,
@@ -104,7 +109,6 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false) {
   });
 }
 
-// ✅ Webhook entrante desde 360dialog con control de duplicados
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -121,7 +125,7 @@ app.post('/webhook', async (req, res) => {
     processedMessages.add(messageId);
 
     const contact = await findOrCreateContact(phone, name);
-    if (!contact) return res.sendStatus(500);
+    if (!contact || !contact.id) return res.sendStatus(500);
 
     await linkContactToInbox(contact.id, phone);
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
@@ -155,7 +159,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ✅ Mensajes salientes desde Chatwoot
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -192,11 +195,15 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejo desde Streamlit con espera activa para conversación
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
-    const normalizedPhone = normalizarNumero(phone?.trim?.());
+    if (!phone || typeof phone !== 'string' || !phone.trim()) {
+      console.warn("⚠️ Número inválido:", phone);
+      return res.status(400).send('Número inválido');
+    }
+
+    const normalizedPhone = normalizarNumero(phone.trim());
 
     if (!normalizedPhone || !content || typeof content !== 'string' || content.trim() === '') {
       console.warn("⚠️ Datos incompletos para reflejar en Chatwoot:", { phone, content });
@@ -210,11 +217,13 @@ app.post('/send-chatwoot-message', async (req, res) => {
     });
 
     const contact = await findOrCreateContact(normalizedPhone, name || 'Cliente WhatsApp');
-    if (!contact) return res.status(500).send('Error al crear contacto');
+    if (!contact || !contact.id) {
+      console.error(':x: Contacto inválido o no creado correctamente:', contact);
+      return res.status(500).send('Error al crear o recuperar el contacto');
+    }
 
     await linkContactToInbox(contact.id, normalizedPhone);
 
-    // Espera activa hasta que la conversación esté lista
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
       conversationId = await getOrCreateConversation(contact.id, contact.identifier);
