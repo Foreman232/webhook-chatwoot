@@ -192,7 +192,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ✅ Reflejo desde Streamlit con validaciones y logs
+// ✅ Reflejo desde Streamlit con espera activa para conversación
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -213,25 +213,22 @@ app.post('/send-chatwoot-message', async (req, res) => {
     if (!contact) return res.status(500).send('Error al crear contacto');
 
     await linkContactToInbox(contact.id, normalizedPhone);
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
-    if (!conversationId) return res.status(500).send('Error al crear conversación');
 
-    let enviado = false;
+    // Espera activa hasta que la conversación esté lista
+    let conversationId = null;
     for (let i = 0; i < 5; i++) {
-      try {
-        await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
-        enviado = true;
-        break;
-      } catch (err) {
-        console.warn(`⏳ Reintentando envío a Chatwoot... intento ${i + 1}`, err.response?.data || err.message);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+      conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+      if (conversationId) break;
+      console.warn(`⏳ Esperando conversación... intento ${i + 1}`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    if (!enviado) {
-      console.error(':x: No se logró reflejar mensaje en Chatwoot tras varios intentos');
-      return res.status(500).send('No se pudo reflejar mensaje en Chatwoot');
+    if (!conversationId) {
+      console.error(':x: No se logró crear conversación tras varios intentos');
+      return res.status(500).send('No se pudo crear conversación');
     }
+
+    await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
 
     return res.sendStatus(200);
   } catch (err) {
