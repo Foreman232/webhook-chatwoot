@@ -66,9 +66,9 @@ async function getOrCreateConversation(contactId, sourceId) {
     });
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
 
-    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: sourceId,
-      inbox_id: CHATWOOT_INBOX_ID
+    const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
+      inbox_id: CHATWOOT_INBOX_ID,
+      source_id: sourceId
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
@@ -216,19 +216,11 @@ app.post('/send-chatwoot-message', async (req, res) => {
     }
 
     let conversationId = null;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       conversationId = await getOrCreateConversation(contact.id, sourceId);
-      if (conversationId) {
-        try {
-          const check = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}`, {
-            headers: { api_access_token: CHATWOOT_API_TOKEN }
-          });
-          if (check.status === 200) break;
-        } catch (err) {
-          console.warn(`⏳ Conversación aún no lista... intento ${i + 1}`);
-        }
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (conversationId) break;
+      console.warn(`⏳ Esperando conversación... intento ${i + 1}`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
 
     if (!conversationId) {
