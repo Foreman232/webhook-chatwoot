@@ -226,8 +226,22 @@ app.post('/send-chatwoot-message', async (req, res) => {
       return res.status(500).send('No se pudo crear conversación');
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    await sendToChatwoot(conversationId, 'text', `${content} [streamlit]`, true);
+    await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
+
+    // 👇 Agregado para forzar visibilidad en bandeja
+    try {
+      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`, {
+        assignee_id: null
+      }, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+
+      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`, {}, {
+        headers: { api_access_token: CHATWOOT_API_TOKEN }
+      });
+    } catch (err) {
+      console.warn(':warning: No se pudo forzar visibilidad de la conversación en bandeja:', err.message);
+    }
 
     return res.sendStatus(200);
   } catch (err) {
