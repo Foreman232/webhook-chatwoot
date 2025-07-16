@@ -127,7 +127,10 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact || !contact.id) return res.sendStatus(500);
 
-    await linkContactToInbox(contact.id, phone);
+    if (!contact.contact_inboxes || contact.contact_inboxes.length === 0) {
+      await linkContactToInbox(contact.id, phone);
+    }
+
     const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
     if (!conversationId) return res.sendStatus(500);
 
@@ -222,7 +225,9 @@ app.post('/send-chatwoot-message', async (req, res) => {
       return res.status(500).send('Error al crear o recuperar el contacto');
     }
 
-    await linkContactToInbox(contact.id, normalizedPhone);
+    if (!contact.contact_inboxes || contact.contact_inboxes.length === 0) {
+      await linkContactToInbox(contact.id, normalizedPhone);
+    }
 
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
@@ -238,7 +243,6 @@ app.post('/send-chatwoot-message', async (req, res) => {
     }
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
-
     return res.sendStatus(200);
   } catch (err) {
     console.error(':x: Error general en /send-chatwoot-message:', err.message);
