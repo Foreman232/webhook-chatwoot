@@ -186,14 +186,12 @@ app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
     if (!phone || typeof phone !== 'string' || !phone.trim()) {
-      console.warn("⚠️ Número inválido:", phone);
       return res.status(400).send('Número inválido');
     }
 
     const normalizedPhone = normalizarNumero(phone.trim());
 
     if (!normalizedPhone || !content || typeof content !== 'string' || content.trim() === '') {
-      console.warn("⚠️ Datos incompletos para reflejar en Chatwoot:", { phone, content });
       return res.status(400).send('Faltan datos válidos para enviar mensaje');
     }
 
@@ -204,16 +202,10 @@ app.post('/send-chatwoot-message', async (req, res) => {
     });
 
     const contact = await findOrCreateContact(normalizedPhone, name || 'Cliente WhatsApp');
-    if (!contact || !contact.id) {
-      console.error(':x: Contacto inválido o no creado correctamente:', contact);
-      return res.status(500).send('Error al crear o recuperar el contacto');
-    }
+    if (!contact || !contact.id) return res.status(500).send('Error al crear o recuperar el contacto');
 
     const sourceId = contact.contact_inboxes?.[0]?.source_id || await getSourceId(contact.id);
-    if (!sourceId) {
-      console.error(':x: No se encontró source_id en contact_inboxes');
-      return res.status(500).send('No se pudo obtener source_id');
-    }
+    if (!sourceId) return res.status(500).send('No se pudo obtener source_id');
 
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
@@ -231,12 +223,15 @@ app.post('/send-chatwoot-message', async (req, res) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    if (!conversationId) {
-      console.error(':x: No se logró crear conversación tras varios intentos');
-      return res.status(500).send('No se pudo crear conversación');
-    }
+    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
+
+    // ✅ Forzar que aparezca en la bandeja
+    await axios.patch(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`, {}, {
+      headers: { api_access_token: CHATWOOT_API_TOKEN }
+    });
+
     return res.sendStatus(200);
   } catch (err) {
     console.error(':x: Error general en /send-chatwoot-message:', err.message);
@@ -246,3 +241,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
