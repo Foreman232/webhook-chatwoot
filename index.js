@@ -47,28 +47,19 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   }
 }
 
-async function linkContactToInbox(contactId, phone) {
-  const sourceId = normalizarNumero(phone);
-  if (!contactId) {
-    console.warn(':warning: No se puede vincular inbox, contactId inválido');
-    return;
-  }
+async function getSourceId(contactId) {
   try {
-    await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`, {
-      inbox_id: CHATWOOT_INBOX_ID,
-      source_id: sourceId
-    }, {
+    const res = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
+    return res.data.payload.contact_inboxes?.[0]?.source_id || '';
   } catch (err) {
-    if (!err.response?.data?.message?.includes('has already been taken')) {
-      console.error(':x: Inbox link error:', err.message);
-    }
+    console.error('❌ No se pudo obtener el source_id desde Chatwoot:', err.message);
+    return '';
   }
 }
 
 async function getOrCreateConversation(contactId, sourceId) {
-  const normalizedSource = normalizarNumero(sourceId);
   try {
     const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
@@ -76,19 +67,13 @@ async function getOrCreateConversation(contactId, sourceId) {
     if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
 
     const newConv = await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`, {
-      source_id: normalizedSource,
+      source_id: sourceId,
       inbox_id: CHATWOOT_INBOX_ID
     }, {
       headers: { api_access_token: CHATWOOT_API_TOKEN }
     });
     return newConv.data.id;
   } catch (err) {
-    if (err.response?.data?.message?.includes('has already been taken')) {
-      const convRes = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, {
-        headers: { api_access_token: CHATWOOT_API_TOKEN }
-      });
-      if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
-    }
     console.error(':x: Error creando conversación:', err.response?.data || err.message);
     return null;
   }
@@ -127,11 +112,10 @@ app.post('/webhook', async (req, res) => {
     const contact = await findOrCreateContact(phone, name);
     if (!contact || !contact.id) return res.sendStatus(500);
 
-    if (!contact.contact_inboxes || contact.contact_inboxes.length === 0) {
-      await linkContactToInbox(contact.id, phone);
-    }
+    const sourceId = contact.contact_inboxes?.[0]?.source_id || await getSourceId(contact.id);
+    if (!sourceId) return res.sendStatus(500);
 
-    const conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+    const conversationId = await getOrCreateConversation(contact.id, sourceId);
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
@@ -225,13 +209,15 @@ app.post('/send-chatwoot-message', async (req, res) => {
       return res.status(500).send('Error al crear o recuperar el contacto');
     }
 
-    if (!contact.contact_inboxes || contact.contact_inboxes.length === 0) {
-      await linkContactToInbox(contact.id, normalizedPhone);
+    const sourceId = contact.contact_inboxes?.[0]?.source_id || await getSourceId(contact.id);
+    if (!sourceId) {
+      console.error(':x: No se encontró source_id en contact_inboxes');
+      return res.status(500).send('No se pudo obtener source_id');
     }
 
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
-      conversationId = await getOrCreateConversation(contact.id, contact.identifier);
+      conversationId = await getOrCreateConversation(contact.id, sourceId);
       if (conversationId) break;
       console.warn(`⏳ Esperando conversación... intento ${i + 1}`);
       await new Promise(resolve => setTimeout(resolve, 1000));
