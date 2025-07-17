@@ -228,15 +228,17 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
 
-    // 👇 Agregado para forzar visibilidad en bandeja
+    // ✅ Forzar visibilidad de la conversación en bandeja
     try {
-      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`, {
-        assignee_id: null
+      await axios.put(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}`, {
+        status: 'open'
       }, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
 
-      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`, {}, {
+      await axios.post(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`, {
+        assignee_id: null
+      }, {
         headers: { api_access_token: CHATWOOT_API_TOKEN }
       });
     } catch (err) {
@@ -252,3 +254,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
