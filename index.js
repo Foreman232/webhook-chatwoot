@@ -10,7 +10,7 @@ const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
-const N8N_WEBHOOK_URL = 'https://n8n.srv869869.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
+const N8N_WEBHOOK_URL = 'https://n8n.srv878261.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
 const processedMessages = new Set();
 
@@ -228,7 +228,6 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
     await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
 
-    // ✅ Forzar visibilidad de la conversación en bandeja
     try {
       await axios.put(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}`, {
         status: 'open'
@@ -254,4 +253,3 @@ app.post('/send-chatwoot-message', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
