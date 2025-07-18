@@ -1,6 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const https = require('https'); // <-- Agregado para manejar certificados autofirmados
 const app = express();
 app.use(bodyParser.json());
 
@@ -10,7 +11,7 @@ const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY = 'icCVWtPvpn2Eb9c2C5wjfA4NAK';
-const N8N_WEBHOOK_URL = 'https://n8n.srv878261.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
+const N8N_WEBHOOK_URL = 'https://n8n.srv876216.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
 const processedMessages = new Set();
 
@@ -134,7 +135,9 @@ app.post('/webhook', async (req, res) => {
     }
 
     try {
-      await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content });
+      await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content }, {
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }) // Ignora certificado no válido
+      });
     } catch (n8nErr) {
       console.error(':x: Error enviando a n8n:', n8nErr.message);
     }
