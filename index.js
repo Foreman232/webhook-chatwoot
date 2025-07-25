@@ -5,7 +5,7 @@ const https = require('https'); // <-- Para manejar certificados autofirmados
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = '5ZsLaX4VCt4TZ21aHRyPmTFb';
+const CHATWOOT_API_TOKEN = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
