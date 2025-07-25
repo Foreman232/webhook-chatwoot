@@ -1,11 +1,11 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const https = require('https'); // <-- Agregado para manejar certificados autofirmados
+const https = require('https'); // <-- Para manejar certificados autofirmados
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = 'orUPYDWoDBkCShVrTSRUZsRx';
+const CHATWOOT_API_TOKEN = '5ZsLaX4VCt4TZ21aHRyPmTFb';
 const CHATWOOT_ACCOUNT_ID = '1';
 const CHATWOOT_INBOX_ID = '1';
 const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
@@ -136,7 +136,7 @@ app.post('/webhook', async (req, res) => {
 
     try {
       await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content }, {
-        httpsAgent: new https.Agent({ rejectUnauthorized: false }) // Ignora certificado no válido
+        httpsAgent: new https.Agent({ rejectUnauthorized: false })
       });
     } catch (n8nErr) {
       console.error(':x: Error enviando a n8n:', n8nErr.message);
