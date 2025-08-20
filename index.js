@@ -1,4 +1,4 @@
-// index.js – Webhook robusto con idempotencia + reintentos + ACK duro
+// index.js – Webhook robusto (Render) con idempotencia + reintentos + ACK duro
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -7,7 +7,7 @@ const https = require('https');
 const app = express();
 app.use(bodyParser.json());
 
-// ============== CONFIG AJUSTABLE ==============
+// ============== CONFIG ==============
 const CHATWOOT_API_TOKEN   = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
 const CHATWOOT_ACCOUNT_ID  = '1';
 const CHATWOOT_INBOX_ID    = '1';
@@ -17,8 +17,7 @@ const D360_API_URL         = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY         = '7Ll0YquMGVElHWxofGvhi5oFAK';
 
 const N8N_WEBHOOK_URL      = 'https://n8n.srv876216.hstgr.cloud/webhook-test/confirmar-tarimas';
-
-const PORT = process.env.PORT || 10000;
+const PORT                 = process.env.PORT || 10000;
 
 // ============== HELPERS ==============
 function normalizarNumero(numero) {
@@ -26,22 +25,21 @@ function normalizarNumero(numero) {
   if (numero.startsWith('+52') && !numero.startsWith('+521')) return '+521' + numero.slice(3);
   return numero;
 }
-
 function makeExpiringSet(ms = 15 * 60 * 1000) {
   const map = new Map();
-  const has = k => {
-    const t = map.get(k);
-    if (!t) return false;
-    if (Date.now() > t) { map.delete(k); return false; }
-    return true;
+  return {
+    has: k => {
+      const t = map.get(k);
+      if (!t) return false;
+      if (Date.now() > t) { map.delete(k); return false; }
+      return true;
+    },
+    add: k => map.set(k, Date.now() + ms),
   };
-  const add = k => map.set(k, Date.now() + ms);
-  return { has, add };
 }
-
-const processedInboundIds   = makeExpiringSet(); // mensajes entrantes (360dialog)
-const processedOutboundIds  = makeExpiringSet(); // mensajes salientes (CW -> WA)
-const processedClientMsgIds = makeExpiringSet(); // idempotencia desde Streamlit
+const processedInboundIds   = makeExpiringSet(); // 360dialog -> CW
+const processedOutboundIds  = makeExpiringSet(); // CW -> 360dialog
+const processedClientMsgIds = makeExpiringSet(); // Streamlit idempotencia
 
 const cwHeaders = { api_access_token: CHATWOOT_API_TOKEN };
 
@@ -61,7 +59,6 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
     return null;
   }
 }
-
 async function getSourceId(contactId) {
   try {
     const { data } = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}`, { headers: cwHeaders });
@@ -71,7 +68,6 @@ async function getSourceId(contactId) {
     return '';
   }
 }
-
 async function getOrCreateConversation(contactId, sourceId) {
   try {
     const { data } = await axios.get(`${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`, { headers: cwHeaders });
@@ -85,7 +81,6 @@ async function getOrCreateConversation(contactId, sourceId) {
     return null;
   }
 }
-
 async function waitForConversationReady(conversationId, attempts = 3, delayMs = 350) {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -96,16 +91,13 @@ async function waitForConversationReady(conversationId, attempts = 3, delayMs = 
   }
   return false;
 }
-
 async function sendToChatwoot(conversationId, type, content, outgoing = false, maxRetries = 4) {
   const payload = { message_type: outgoing ? 'outgoing' : 'incoming', private: false };
   if (['image', 'document', 'audio', 'video'].includes(type)) {
     payload.attachments = [{ file_type: type, file_url: content }];
-  } else {
-    payload.content = content;
-  }
+  } else { payload.content = content; }
 
-  let wait = 400; let lastErr;
+  let wait = 400, lastErr;
   for (let i = 0; i < maxRetries; i++) {
     try {
       const { data } = await axios.post(
@@ -125,7 +117,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false, m
   return { ok: false, error: lastErr };
 }
 
-// ============== WEBHOOK ENTRANTE (360dialog -> Chatwoot) ==============
+// ===== 360dialog -> Chatwoot =====
 app.post('/webhook', async (req, res) => {
   try {
     const entry   = req.body.entry?.[0];
@@ -175,7 +167,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ============== OUTBOUND (Chatwoot -> WhatsApp) ==============
+// ===== Chatwoot -> 360dialog =====
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -205,12 +197,8 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ============== REFLEJO DESDE STREAMLIT -> CHATWOOT ==============
-/**
- * Espera JSON:
- * { phone: "+521...", name: "Nombre", content: "Texto", client_message_id: "sha1|uuid" }
- * Devuelve: { ok: true, messageId, conversationId }
- */
+// ===== Streamlit -> Chatwoot (reflejo) =====
+/** Espera: { phone, name, content, client_message_id } */
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content, client_message_id } = req.body || {};
