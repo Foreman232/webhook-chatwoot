@@ -21,8 +21,8 @@ const processedMessages = new Set();
 // ---------------------- Normalizar número ----------------------
 function normalizarNumero(numero) {
   if (!numero || typeof numero !== 'string') return '';
-  if (numero.startsWith("+52") && !numero.startsWith("+521")) {
-    return "+521" + numero.slice(3);
+  if (numero.startsWith('+52') && !numero.startsWith('+521')) {
+    return '+521' + numero.slice(3);
   }
   return numero;
 }
@@ -46,7 +46,7 @@ async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
       const getResp = await axios.get(
-        `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${identifier}`,
+        `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(identifier)}`,
         { headers: { api_access_token: CHATWOOT_API_TOKEN } }
       );
       return getResp.data.payload[0];
@@ -91,24 +91,39 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// ---------------------- Enviar mensaje a Chatwoot ----------------------
-async function sendToChatwoot(conversationId, type, content, outgoing = false) {
+// ---------------------- PATCH: Enviar mensaje a Chatwoot con reintentos y devolver messageId ----------------------
+async function sendToChatwoot(conversationId, type, content, outgoing = false, maxRetries = 4) {
   const payload = {
     message_type: outgoing ? 'outgoing' : 'incoming',
     private: false
   };
 
-  if (["image", "document", "audio", "video"].includes(type)) {
+  if (['image', 'document', 'audio', 'video'].includes(type)) {
     payload.attachments = [{ file_type: type, file_url: content }];
   } else {
     payload.content = content;
   }
 
-  await axios.post(
-    `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
-    payload,
-    { headers: { api_access_token: CHATWOOT_API_TOKEN } }
-  );
+  let wait = 350;
+  let lastErr;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const { data } = await axios.post(
+        `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
+        payload,
+        { headers: { api_access_token: CHATWOOT_API_TOKEN } }
+      );
+      return data.id; // <= devolvemos el ID del mensaje guardado en Chatwoot
+    } catch (err) {
+      const s = err.response?.status;
+      const retriable = s === 404 || s === 422 || s === 409; // conversación aún no “lista”
+      lastErr = err.response?.data || err.message;
+      if (!retriable) throw err;
+      await new Promise(r => setTimeout(r, wait));
+      wait = Math.min(wait * 1.6, 2000);
+    }
+  }
+  throw new Error(`sendToChatwoot failed: ${lastErr}`);
 }
 
 // ---------------------- Endpoint: Webhook (entrantes) ----------------------
@@ -209,7 +224,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
     const { phone, name, content } = req.body;
     const normalizedPhone = normalizarNumero(phone.trim());
 
-    console.log("📥 Reflejando mensaje desde Streamlit:", { phone: normalizedPhone, name, content });
+    console.log('📥 Reflejando mensaje desde Streamlit:', { phone: normalizedPhone, name, content });
 
     const contact = await findOrCreateContact(normalizedPhone, name || 'Cliente WhatsApp');
     if (!contact || !contact.id) {
@@ -223,6 +238,7 @@ app.post('/send-chatwoot-message', async (req, res) => {
       return res.status(500).send('No se pudo obtener source_id');
     }
 
+    // poll cortito por si la conversación acaba de crearse
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
       conversationId = await getOrCreateConversation(contact.id, sourceId);
@@ -245,7 +261,8 @@ app.post('/send-chatwoot-message', async (req, res) => {
       return res.status(500).send('No se pudo crear conversación');
     }
 
-    await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
+    // PATCH: enviar y obtener messageId (ACK duro)
+    const messageId = await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
 
     try {
       await axios.put(
@@ -262,7 +279,8 @@ app.post('/send-chatwoot-message', async (req, res) => {
       console.warn('⚠️ No se pudo forzar visibilidad de la conversación en bandeja:', err.message);
     }
 
-    return res.sendStatus(200);
+    // PATCH: devolver messageId/conversationId
+    return res.status(200).json({ ok: true, messageId, conversationId });
   } catch (err) {
     console.error('❌ Error general en /send-chatwoot-message:', err.message);
     res.status(500).send('Error interno al reflejar mensaje');
