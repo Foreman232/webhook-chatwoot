@@ -91,7 +91,7 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// ---------------------- PATCH: Enviar mensaje a Chatwoot con reintentos y devolver messageId ----------------------
+// ---------------------- Enviar mensaje a Chatwoot (con reintentos) ----------------------
 async function sendToChatwoot(conversationId, type, content, outgoing = false, maxRetries = 4) {
   const payload = {
     message_type: outgoing ? 'outgoing' : 'incoming',
@@ -113,7 +113,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false, m
         payload,
         { headers: { api_access_token: CHATWOOT_API_TOKEN } }
       );
-      return data.id; // <= devolvemos el ID del mensaje guardado en Chatwoot
+      return data.id; // ID del mensaje en Chatwoot
     } catch (err) {
       const s = err.response?.status;
       const retriable = s === 404 || s === 422 || s === 409; // conversación aún no “lista”
@@ -124,6 +124,23 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false, m
     }
   }
   throw new Error(`sendToChatwoot failed: ${lastErr}`);
+}
+
+// ---------------------- Forzar conversación a ABIERTO ----------------------
+async function setConversationOpen(conversationId, assigneeId = null) {
+  // Cambiar estado a "open"
+  await axios.post(
+    `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`,
+    { status: 'open' },
+    { headers: { api_access_token: CHATWOOT_API_TOKEN } }
+  );
+
+  // Opcional: dejar sin asignar (o pasar un ID de agente para asignarla)
+  await axios.post(
+    `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`,
+    { assignee_id: assigneeId }, // null => No asignados
+    { headers: { api_access_token: CHATWOOT_API_TOKEN } }
+  );
 }
 
 // ---------------------- Endpoint: Webhook (entrantes) ----------------------
@@ -166,6 +183,14 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
     }
 
+    // 🔓 Forzar ABIERTO en entrantes
+    try {
+      await setConversationOpen(conversationId, null);
+    } catch (e) {
+      console.warn('⚠️ No se pudo abrir (webhook):', e.message);
+    }
+
+    // n8n
     try {
       await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content }, {
         httpsAgent: new https.Agent({ rejectUnauthorized: false })
@@ -261,25 +286,17 @@ app.post('/send-chatwoot-message', async (req, res) => {
       return res.status(500).send('No se pudo crear conversación');
     }
 
-    // PATCH: enviar y obtener messageId (ACK duro)
+    // Enviar y obtener messageId (ACK duro)
     const messageId = await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
 
+    // 🔓 Forzar ABIERTO en reflejos
     try {
-      await axios.put(
-        `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}`,
-        { status: 'open' },
-        { headers: { api_access_token: CHATWOOT_API_TOKEN } }
-      );
-      await axios.post(
-        `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`,
-        { assignee_id: null },
-        { headers: { api_access_token: CHATWOOT_API_TOKEN } }
-      );
-    } catch (err) {
-      console.warn('⚠️ No se pudo forzar visibilidad de la conversación en bandeja:', err.message);
+      await setConversationOpen(conversationId, null);
+    } catch (e) {
+      console.warn('⚠️ No se pudo abrir (reflejo):', e.message);
     }
 
-    // PATCH: devolver messageId/conversationId
+    // devolver messageId/conversationId
     return res.status(200).json({ ok: true, messageId, conversationId });
   } catch (err) {
     console.error('❌ Error general en /send-chatwoot-message:', err.message);
