@@ -1,111 +1,101 @@
+// index.js — Chatwoot <-> 360dialog con media (imagen/documento/audio/video) y "Abierto"
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const https = require('https'); // <-- Para manejar certificados autofirmados
+const https = require('https'); // por si tu n8n usa cert autofirmado
+const FormData = require('form-data');
 
 const app = express();
 app.use(bodyParser.json());
 
-const CHATWOOT_API_TOKEN = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
+// ========= CONFIG =========
+const CHATWOOT_API_TOKEN  = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
 const CHATWOOT_ACCOUNT_ID = '1';
-const CHATWOOT_INBOX_ID = '1';
-const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
+const CHATWOOT_INBOX_ID   = '1';
+const BASE_URL            = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 
-const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
-const D360_API_KEY = '7Ll0YquMGVElHWxofGvhi5oFAK';
+const D360_API_URL        = 'https://waba-v2.360dialog.io/messages';
+const D360_MEDIA_BASE     = 'https://waba-v2.360dialog.io/media'; // <- descarga media
+const D360_API_KEY        = '7Ll0YquMGVElHWxofGvhi5oFAK';
 
-const N8N_WEBHOOK_URL = 'https://n8n.srv876216.hstgr.cloud/webhook-test/confirmar-tarimas';
+const N8N_WEBHOOK_URL     = 'https://n8n.srv876216.hstgr.cloud/webhook-test/confirmar-tarimas';
 
-const processedMessages = new Set();
+const processedMessages = new Set(); // simple dedupe
 
-// ---------------------- Normalizar número ----------------------
+// ========= HELPERS =========
 function normalizarNumero(numero) {
   if (!numero || typeof numero !== 'string') return '';
-  if (numero.startsWith('+52') && !numero.startsWith('+521')) {
-    return '+521' + numero.slice(3);
-  }
+  if (numero.startsWith('+52') && !numero.startsWith('+521')) return '+521' + numero.slice(3);
   return numero;
 }
 
-// ---------------------- Crear o encontrar contacto ----------------------
+// Crear o encontrar contacto
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = normalizarNumero(phone);
-  const payload = {
-    inbox_id: CHATWOOT_INBOX_ID,
-    name,
-    identifier,
-    phone_number: identifier
-  };
+  const payload = { inbox_id: CHATWOOT_INBOX_ID, name, identifier, phone_number: identifier };
   try {
-    const response = await axios.post(
+    const { data } = await axios.post(
       `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts`,
       payload,
       { headers: { api_access_token: CHATWOOT_API_TOKEN } }
     );
-    return response.data.payload;
+    return data.payload;
   } catch (err) {
     if (err.response?.data?.message?.includes('has already been taken')) {
-      const getResp = await axios.get(
+      const { data } = await axios.get(
         `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(identifier)}`,
         { headers: { api_access_token: CHATWOOT_API_TOKEN } }
       );
-      return getResp.data.payload[0];
+      return data.payload?.[0];
     }
-    console.error('❌ Contacto error:', err.message);
+    console.error('❌ Contacto error:', err.response?.data || err.message);
     return null;
   }
 }
 
-// ---------------------- Obtener source_id ----------------------
 async function getSourceId(contactId) {
   try {
-    const res = await axios.get(
+    const { data } = await axios.get(
       `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}`,
       { headers: { api_access_token: CHATWOOT_API_TOKEN } }
     );
-    return res.data.payload.contact_inboxes?.[0]?.source_id || '';
+    return data.payload.contact_inboxes?.[0]?.source_id || '';
   } catch (err) {
-    console.error('❌ No se pudo obtener el source_id desde Chatwoot:', err.message);
+    console.error('❌ No se pudo obtener source_id:', err.response?.data || err.message);
     return '';
   }
 }
 
-// ---------------------- Obtener o crear conversación ----------------------
 async function getOrCreateConversation(contactId, sourceId) {
   try {
-    const convRes = await axios.get(
+    const { data } = await axios.get(
       `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`,
       { headers: { api_access_token: CHATWOOT_API_TOKEN } }
     );
-    if (convRes.data.payload.length > 0) return convRes.data.payload[0].id;
+    if (Array.isArray(data.payload) && data.payload.length > 0) return data.payload[0].id;
 
-    const newConv = await axios.post(
+    const resp = await axios.post(
       `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations`,
       { source_id: sourceId, inbox_id: CHATWOOT_INBOX_ID },
       { headers: { api_access_token: CHATWOOT_API_TOKEN } }
     );
-    return newConv.data.id;
+    return resp.data.id;
   } catch (err) {
     console.error('❌ Error creando conversación:', err.response?.data || err.message);
     return null;
   }
 }
 
-// ---------------------- Enviar mensaje a Chatwoot (con reintentos) ----------------------
+// Reintentos al guardar mensaje texto en Chatwoot
 async function sendToChatwoot(conversationId, type, content, outgoing = false, maxRetries = 4) {
-  const payload = {
-    message_type: outgoing ? 'outgoing' : 'incoming',
-    private: false
-  };
-
+  const payload = { message_type: outgoing ? 'outgoing' : 'incoming', private: false };
   if (['image', 'document', 'audio', 'video'].includes(type)) {
-    payload.attachments = [{ file_type: type, file_url: content }];
+    payload.attachments = [{ file_type: type, file_url: content }]; // no lo usamos para media (subimos binario), pero lo dejamos por compat.
   } else {
     payload.content = content;
   }
-
-  let wait = 350;
-  let lastErr;
+  let wait = 350, lastErr;
   for (let i = 0; i < maxRetries; i++) {
     try {
       const { data } = await axios.post(
@@ -113,10 +103,10 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false, m
         payload,
         { headers: { api_access_token: CHATWOOT_API_TOKEN } }
       );
-      return data.id; // ID del mensaje en Chatwoot
+      return data.id;
     } catch (err) {
       const s = err.response?.status;
-      const retriable = s === 404 || s === 422 || s === 409; // conversación aún no “lista”
+      const retriable = s === 404 || s === 422 || s === 409;
       lastErr = err.response?.data || err.message;
       if (!retriable) throw err;
       await new Promise(r => setTimeout(r, wait));
@@ -126,16 +116,53 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false, m
   throw new Error(`sendToChatwoot failed: ${lastErr}`);
 }
 
-// ---------------------- Forzar conversación a ABIERTO ----------------------
+// Adjuntar binario a Chatwoot (se ve en el chat)
+async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, outgoing = false) {
+  const form = new FormData();
+  form.append('message_type', outgoing ? 'outgoing' : 'incoming');
+  form.append('private', 'false');
+  form.append('attachments[]', buffer, { filename, contentType: mime });
+
+  const headers = { ...form.getHeaders(), 'api_access_token': CHATWOOT_API_TOKEN };
+
+  const { data } = await axios.post(
+    `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
+    form,
+    { headers }
+  );
+  return data.id;
+}
+
+// Pedir URL/descargar media de 360dialog
+async function get360MediaUrl(mediaId) {
+  // 360dialog: GET /media/{id} devuelve 302 (Location) o JSON con {url}
+  const resp = await axios.get(`${D360_MEDIA_BASE}/${mediaId}`, {
+    headers: { 'D360-API-KEY': D360_API_KEY },
+    maxRedirects: 0,
+    validateStatus: s => [200, 302].includes(s),
+  });
+  return resp.data?.url || resp.headers?.location || null;
+}
+
+async function download360Media(mediaId) {
+  const url = await get360MediaUrl(mediaId);
+  if (!url) throw new Error('No media URL from 360dialog');
+  const fileResp = await axios.get(url, {
+    headers: { 'D360-API-KEY': D360_API_KEY }, // algunas URLs requieren key otra vez
+    responseType: 'arraybuffer',
+  });
+  const buffer = Buffer.from(fileResp.data);
+  const mime = fileResp.headers['content-type'] || 'application/octet-stream';
+  return { buffer, mime };
+}
+
+// Forzar conversación a ABIERTO y (opcional) asignar
 async function setConversationOpen(conversationId, assigneeId = null) {
-  // Cambiar estado a "open"
   await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`,
     { status: 'open' },
     { headers: { api_access_token: CHATWOOT_API_TOKEN } }
   );
-
-  // Opcional: dejar sin asignar (o pasar un ID de agente para asignarla)
   await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`,
     { assignee_id: assigneeId }, // null => No asignados
@@ -143,24 +170,40 @@ async function setConversationOpen(conversationId, assigneeId = null) {
   );
 }
 
-// ---------------------- Endpoint: Webhook (entrantes) ----------------------
+// Mapear nombre de archivo por tipo/mime
+function filenameFor(type, mediaId, mime, mediaObj) {
+  if (mediaObj?.filename) return mediaObj.filename;
+  const extFromMime = (mime || '').split('/')[1] || '';
+  const byType = {
+    image: 'jpg',
+    video: 'mp4',
+    audio: 'opus',      // notas de voz suelen venir en audio/ogg; Chatwoot igual lo muestra
+    document: 'pdf',
+  };
+  const def = byType[type] || extFromMime || 'bin';
+  return `wa-${type}-${mediaId}.${def}`;
+}
+
+// ========= ENDPOINTS =========
+
+// 1) Webhook entrante (360 -> Chatwoot)
 app.post('/webhook', async (req, res) => {
   try {
-    const entry = req.body.entry?.[0];
+    const entry   = req.body.entry?.[0];
     const changes = entry?.changes?.[0]?.value;
     const rawPhone = `+${changes?.contacts?.[0]?.wa_id}`;
-    const phone = normalizarNumero(rawPhone);
-    const name = changes?.contacts?.[0]?.profile?.name;
-    const msg = changes?.messages?.[0];
+    const phone   = normalizarNumero(rawPhone);
+    const name    = changes?.contacts?.[0]?.profile?.name;
+    const msg     = changes?.messages?.[0];
 
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
-    const messageId = msg.id;
-    if (processedMessages.has(messageId)) return res.sendStatus(200);
-    processedMessages.add(messageId);
+    const inboundId = msg.id;
+    if (processedMessages.has(inboundId)) return res.sendStatus(200);
+    processedMessages.add(inboundId);
 
     const contact = await findOrCreateContact(phone, name);
-    if (!contact || !contact.id) return res.sendStatus(500);
+    if (!contact?.id) return res.sendStatus(500);
 
     const sourceId = contact.contact_inboxes?.[0]?.source_id || await getSourceId(contact.id);
     if (!sourceId) return res.sendStatus(500);
@@ -169,29 +212,41 @@ app.post('/webhook', async (req, res) => {
     if (!conversationId) return res.sendStatus(500);
 
     const type = msg.type;
-    const content = msg[type]?.body || msg[type]?.caption || msg[type]?.link || '[media]';
 
     if (type === 'text') {
-      await sendToChatwoot(conversationId, 'text', msg.text.body);
+      await sendToChatwoot(conversationId, 'text', msg.text.body, false);
+
     } else if (['image', 'document', 'audio', 'video'].includes(type)) {
-      await sendToChatwoot(conversationId, type, content);
+      const mediaObj = msg[type] || {};
+      const mediaId  = mediaObj.id;
+      const caption  = mediaObj.caption || '';
+
+      try {
+        const { buffer, mime } = await download360Media(mediaId);
+        const fname = filenameFor(type, mediaId, mime, mediaObj);
+        await sendAttachmentToChatwoot(conversationId, buffer, fname, mime, false);
+        if (caption) await sendToChatwoot(conversationId, 'text', caption, false);
+      } catch (e) {
+        console.error('❌ No se pudo descargar/subir media:', e.message);
+        await sendToChatwoot(conversationId, 'text', '[Media recibido pero no se pudo descargar]', false);
+      }
+
     } else if (type === 'location') {
       const loc = msg.location;
       const locStr = `📍 Ubicación: https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
-      await sendToChatwoot(conversationId, 'text', locStr);
+      await sendToChatwoot(conversationId, 'text', locStr, false);
+
     } else {
-      await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]');
+      await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]', false);
     }
 
-    // 🔓 Forzar ABIERTO en entrantes
-    try {
-      await setConversationOpen(conversationId, null);
-    } catch (e) {
-      console.warn('⚠️ No se pudo abrir (webhook):', e.message);
-    }
+    // Abrir conversación
+    try { await setConversationOpen(conversationId, null); } 
+    catch (e) { console.warn('⚠️ No se pudo abrir (webhook):', e.message); }
 
-    // n8n
+    // Enviar a n8n (opcional)
     try {
+      const content = type === 'text' ? msg.text.body : `[${type}]`;
       await axios.post(N8N_WEBHOOK_URL, { phone, name, type, content }, {
         httpsAgent: new https.Agent({ rejectUnauthorized: false })
       });
@@ -206,20 +261,20 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ---------------------- Endpoint: Outbound (salientes desde Chatwoot) ----------------------
+// 2) Mensajes salientes desde Chatwoot -> WhatsApp
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
     return res.sendStatus(200);
   }
 
-  const messageId = msg.id;
+  const cwMsgId   = msg.id;
   const rawNumber = msg.conversation?.meta?.sender?.phone_number?.replace('+', '');
-  const number = normalizarNumero(`+${rawNumber}`).replace('+', '');
-  const content = msg.content;
+  const number    = normalizarNumero(`+${rawNumber}`).replace('+', '');
+  const content   = msg.content;
 
-  if (processedMessages.has(messageId)) return res.sendStatus(200);
-  processedMessages.add(messageId);
+  if (processedMessages.has(cwMsgId)) return res.sendStatus(200);
+  processedMessages.add(cwMsgId);
 
   if (!number || !content) return res.sendStatus(200);
 
@@ -243,27 +298,21 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// ---------------------- Endpoint: Reflejo desde Streamlit ----------------------
+// 3) Reflejo desde Streamlit -> Chatwoot (y Abrir)
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
-    const normalizedPhone = normalizarNumero(phone.trim());
+    const normalizedPhone = normalizarNumero(String(phone || '').trim());
 
     console.log('📥 Reflejando mensaje desde Streamlit:', { phone: normalizedPhone, name, content });
 
     const contact = await findOrCreateContact(normalizedPhone, name || 'Cliente WhatsApp');
-    if (!contact || !contact.id) {
-      console.error('❌ Contacto inválido o no creado correctamente:', contact);
-      return res.status(500).send('Error al crear o recuperar el contacto');
-    }
+    if (!contact?.id) return res.status(500).send('No se pudo crear/recuperar contacto');
 
     const sourceId = contact.contact_inboxes?.[0]?.source_id || await getSourceId(contact.id);
-    if (!sourceId) {
-      console.error('❌ No se encontró source_id en contact_inboxes');
-      return res.status(500).send('No se pudo obtener source_id');
-    }
+    if (!sourceId) return res.status(500).send('No se pudo obtener source_id');
 
-    // poll cortito por si la conversación acaba de crearse
+    // pequeña espera mientras aparece la conversación
     let conversationId = null;
     for (let i = 0; i < 5; i++) {
       conversationId = await getOrCreateConversation(contact.id, sourceId);
@@ -274,36 +323,25 @@ app.post('/send-chatwoot-message', async (req, res) => {
             { headers: { api_access_token: CHATWOOT_API_TOKEN } }
           );
           if (check.status === 200) break;
-        } catch (err) {
-          console.warn(`⏳ Conversación aún no lista... intento ${i + 1}`);
-        }
+        } catch (_) {}
       }
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(r => setTimeout(r, 600));
     }
+    if (!conversationId) return res.status(500).send('No se pudo crear conversación');
 
-    if (!conversationId) {
-      console.error('❌ No se logró crear conversación tras varios intentos');
-      return res.status(500).send('No se pudo crear conversación');
-    }
-
-    // Enviar y obtener messageId (ACK duro)
     const messageId = await sendToChatwoot(conversationId, 'text', `${content}[streamlit]`, true);
 
-    // 🔓 Forzar ABIERTO en reflejos
-    try {
-      await setConversationOpen(conversationId, null);
-    } catch (e) {
-      console.warn('⚠️ No se pudo abrir (reflejo):', e.message);
-    }
+    try { await setConversationOpen(conversationId, null); } 
+    catch (e) { console.warn('⚠️ No se pudo abrir (reflejo):', e.message); }
 
-    // devolver messageId/conversationId
     return res.status(200).json({ ok: true, messageId, conversationId });
   } catch (err) {
-    console.error('❌ Error general en /send-chatwoot-message:', err.message);
+    console.error('❌ Error en /send-chatwoot-message:', err.message);
     res.status(500).send('Error interno al reflejar mensaje');
   }
 });
 
-// ---------------------- Arrancar servidor ----------------------
+// ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
