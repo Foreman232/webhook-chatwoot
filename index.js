@@ -1,4 +1,4 @@
-// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video), contactos y "Abierto"
+// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto"
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -16,12 +16,11 @@ const CHATWOOT_INBOX_ID   = '1';
 const BASE_URL            = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 
 const D360_API_URL        = 'https://waba-v2.360dialog.io/messages';
-const D360_MEDIA_BASE     = 'https://waba-v2.360dialog.io/v1/media'; // <- FIX: include /v1
 const D360_API_KEY        = '7Ll0YquMGVElHWxofGvhi5oFAK';
 
 const N8N_WEBHOOK_URL     = 'https://n8n.srv876216.hstgr.cloud/webhook-test/confirmar-tarimas';
 
-const processedMessages = new Set();
+const processedMessages = new Set(); // idempotencia básica
 
 // ========= HELPERS =========
 function normalizarNumero(numero) {
@@ -123,7 +122,6 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
   form.append('attachments[]', buffer, { filename, contentType: mime });
 
   const headers = { ...form.getHeaders(), 'api_access_token': CHATWOOT_API_TOKEN };
-
   const { data } = await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
     form,
@@ -132,23 +130,47 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
   return data.id;
 }
 
-// 360dialog: pedir URL y descargar media
+// ====== MEDIA (360dialog) — probar varias rutas hasta encontrar la buena ======
 async function get360MediaUrl(mediaId) {
-  const resp = await axios.get(`${D360_MEDIA_BASE}/${mediaId}`, {
-    headers: { 'D360-API-KEY': D360_API_KEY, 'Accept': 'application/json' },
-    maxRedirects: 0,
-    validateStatus: s => [200, 302].includes(s),
-  });
-  return resp.data?.url || resp.headers?.location || null;
+  const bases = [
+    'https://waba-v2.360dialog.io/v1/media',
+    'https://waba-v2.360dialog.io/media',
+    'https://waba.360dialog.io/v1/media',
+    'https://waba.360dialog.io/media'
+  ];
+  let lastErr, lastStatus;
+  for (const base of bases) {
+    try {
+      const url = `${base}/${mediaId}`;
+      const resp = await axios.get(url, {
+        headers: { 'D360-API-KEY': D360_API_KEY, 'Accept': 'application/json' },
+        maxRedirects: 0,
+        validateStatus: s => [200, 301, 302].includes(s)
+      });
+      const redirect = resp.headers?.location;
+      const jsonUrl  = resp.data?.url;
+      if (redirect || jsonUrl) {
+        if (redirect) console.log(`✅ media redirect @ ${url} -> ${redirect}`);
+        if (jsonUrl)  console.log(`✅ media json @ ${url} -> ${jsonUrl}`);
+        return redirect || jsonUrl;
+      }
+      lastStatus = resp.status;
+      lastErr = `respuesta sin URL (status ${resp.status})`;
+    } catch (e) {
+      lastStatus = e.response?.status;
+      lastErr = e.response?.data || e.message;
+      console.warn(`⚠️ media GET falló @ ${base}/${mediaId} => ${lastStatus} ${lastErr}`);
+    }
+  }
+  throw new Error(`No media URL from 360dialog (id=${mediaId}) - último error: ${lastStatus} ${lastErr}`);
 }
 
 async function download360Media(mediaId) {
   const url = await get360MediaUrl(mediaId);
-  if (!url) throw new Error(`No media URL from 360dialog (id=${mediaId})`);
   const fileResp = await axios.get(url, {
     headers: { 'D360-API-KEY': D360_API_KEY },
     responseType: 'arraybuffer',
-    validateStatus: s => s >= 200 && s < 400,
+    validateStatus: s => s >= 200 && s < 400
   });
   const buffer = Buffer.from(fileResp.data);
   const mime = fileResp.headers['content-type'] || 'application/octet-stream';
@@ -164,7 +186,7 @@ async function setConversationOpen(conversationId, assigneeId = null) {
   );
   await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`,
-    { assignee_id: assigneeId },
+    { assignee_id: assigneeId }, // null => No asignados
     { headers: { api_access_token: CHATWOOT_API_TOKEN } }
   );
 }
@@ -183,12 +205,12 @@ function filenameFor(type, mediaId, mime, mediaObj) {
 // 1) Entrantes
 app.post('/webhook', async (req, res) => {
   try {
-    const entry   = req.body.entry?.[0];
-    const changes = entry?.changes?.[0]?.value;
+    const entry    = req.body.entry?.[0];
+    const changes  = entry?.changes?.[0]?.value;
     const rawPhone = `+${changes?.contacts?.[0]?.wa_id}`;
-    const phone   = normalizarNumero(rawPhone);
-    const name    = changes?.contacts?.[0]?.profile?.name;
-    const msg     = changes?.messages?.[0];
+    const phone    = normalizarNumero(rawPhone);
+    const name     = changes?.contacts?.[0]?.profile?.name;
+    const msg      = changes?.messages?.[0];
 
     if (!phone || !msg || msg.from_me) return res.sendStatus(200);
 
@@ -221,7 +243,7 @@ app.post('/webhook', async (req, res) => {
         await sendAttachmentToChatwoot(conversationId, buffer, fname, mime, false);
         if (caption) await sendToChatwoot(conversationId, 'text', caption, false);
       } catch (e) {
-        console.error(`❌ No se pudo descargar/subir media (id=${mediaId}):`, e.message);
+        console.error(`❌ No se pudo descargar/subir media (id=${mediaId}):`, e.message, 'mediaObj=', mediaObj);
         await sendToChatwoot(conversationId, 'text', '[Media recibido pero no se pudo descargar]', false);
       }
 
@@ -231,7 +253,6 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', locStr, false);
 
     } else if (type === 'contacts') {
-      // Mostrar vCard de manera legible
       const c = (msg.contacts && msg.contacts[0]) || {};
       const nm = c.name || {};
       const fullName = nm.formatted_name || [nm.first_name, nm.middle_name, nm.last_name].filter(Boolean).join(' ');
