@@ -19,7 +19,7 @@ const BASE_URL            = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 const D360_API_URL        = 'https://waba-v2.360dialog.io/messages';
 const D360_API_KEY        = '7Ll0YquMGVElHWxofGvhi5oFAK';
 
-const N8N_WEBHOOK_URL     = 'https://n8n.srv876216.hstgr.cloud/webhook-test/confirmar-tarimas';
+const N8N_WEBHOOK_URL     = 'https://n8n.srv876216.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
 const processedMessages = new Set(); // idempotencia simple
 
