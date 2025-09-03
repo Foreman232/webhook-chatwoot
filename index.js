@@ -1,4 +1,4 @@
-// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto"
+// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto" 
 // Descarga binaria directa desde 360dialog probando múltiples endpoints y phone_number_id.
 
 const express = require('express');
@@ -11,15 +11,15 @@ const app = express();
 app.use(bodyParser.json());
 
 // ========= CONFIG =========
-const CHATWOOT_API_TOKEN  = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
+const CHATWOOT_API_TOKEN = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
 const CHATWOOT_ACCOUNT_ID = '1';
-const CHATWOOT_INBOX_ID   = '1';
-const BASE_URL            = 'https://srv904439.hstgr.cloud/api/v1/accounts';
+const CHATWOOT_INBOX_ID = '1';
+const BASE_URL = 'https://srv904439.hstgr.cloud/api/v1/accounts';
 
-const D360_API_URL        = 'https://waba-v2.360dialog.io/messages';
-const D360_API_KEY        = '7Ll0YquMGVElHWxofGvhi5oFAK';
+const D360_API_URL = 'https://waba-v2.360dialog.io/messages';
+const D360_API_KEY = '7Ll0YquMGVElHWxofGvhi5oFAK';
 
-const N8N_WEBHOOK_URL     = 'https://n8n.srv876216.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
+const N8N_WEBHOOK_URL = 'https://n8n.srv876216.hstgr.cloud/webhook-test/02cfb95c-e80b-4a83-ad98-35a8fe2fb2fb';
 
 const processedMessages = new Set(); // idempotencia simple
 
