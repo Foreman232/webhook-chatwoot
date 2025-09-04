@@ -1,5 +1,5 @@
-// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto" 
-// Descarga binaria directa desde 360dialog probando múltiples endpoints y phone_number_id.
+// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto"
+// Incluye CORS y /health para que arranque bien en Render.
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -7,8 +7,13 @@ const axios = require('axios');
 const https = require('https');
 const FormData = require('form-data');
 
+// CORS (con fallback si no estuviera instalado)
+let cors;
+try { cors = require('cors'); } catch { cors = () => (_req, _res, next) => next(); }
+
 const app = express();
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(cors());
 
 // ========= CONFIG =========
 const CHATWOOT_API_TOKEN = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
@@ -31,6 +36,7 @@ function normalizarNumero(numero) {
 }
 function j(v){ try{ return typeof v==='string'?v:JSON.stringify(v);}catch(_){ return String(v);} }
 
+// ====== Chatwoot helpers ======
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = normalizarNumero(phone);
   const payload = { inbox_id: CHATWOOT_INBOX_ID, name, identifier, phone_number: identifier };
@@ -134,7 +140,6 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
 
 // ====== MEDIA (360dialog) — descarga binaria directa probando hosts/rutas con/sin phone_number_id ======
 async function fetch360MediaBinary(mediaId, phoneNumberId) {
-  // combinaciones de base y query
   const bases = [
     'https://waba-v2.360dialog.io/v1/media',
     'https://waba-v2.360dialog.io/media',
@@ -215,6 +220,7 @@ function filenameFor(type, mediaId, mime, mediaObj) {
 }
 
 // ========= ENDPOINTS =========
+app.get('/health', (_req, res) => res.status(200).send('ok'));
 
 // 1) Entrantes
 app.post('/webhook', async (req, res) => {
@@ -245,7 +251,7 @@ app.post('/webhook', async (req, res) => {
     const phoneNumberId =
       changes?.metadata?.phone_number_id ||
       changes?.metadata?.phone_number?.id ||
-      changes?.phone_number_id || // fallback extra
+      changes?.phone_number_id ||
       '';
 
     const type = msg.type;
@@ -383,6 +389,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 
-// ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
