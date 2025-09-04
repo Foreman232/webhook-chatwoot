@@ -1,14 +1,14 @@
-// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto" 
-// Descarga binaria directa desde 360dialog probando múltiples endpoints y phone_number_id.
-
+// index.js — 360dialog <-> Chatwoot con media y apertura de conversación
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const https = require('https');
 const FormData = require('form-data');
+const cors = require('cors');
 
 const app = express();
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(cors());
 
 // ========= CONFIG =========
 const CHATWOOT_API_TOKEN = '5ZSLaX4VCt4T2Z1aHRyPmTFb';
@@ -31,6 +31,7 @@ function normalizarNumero(numero) {
 }
 function j(v){ try{ return typeof v==='string'?v:JSON.stringify(v);}catch(_){ return String(v);} }
 
+// ====== Chatwoot helpers ======
 async function findOrCreateContact(phone, name = 'Cliente WhatsApp') {
   const identifier = normalizarNumero(phone);
   const payload = { inbox_id: CHATWOOT_INBOX_ID, name, identifier, phone_number: identifier };
@@ -87,11 +88,11 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// Reintentos al guardar texto
+// Envío texto (con reintento 404/422/409)
 async function sendToChatwoot(conversationId, type, content, outgoing = false, maxRetries = 4) {
   const payload = { message_type: outgoing ? 'outgoing' : 'incoming', private: false };
   if (['image', 'document', 'audio', 'video'].includes(type)) {
-    payload.attachments = [{ file_type: type, file_url: content }]; // no usado en binarios
+    payload.attachments = [{ file_type: type, file_url: content }];
   } else {
     payload.content = content;
   }
@@ -116,7 +117,7 @@ async function sendToChatwoot(conversationId, type, content, outgoing = false, m
   throw new Error(`sendToChatwoot failed: ${lastErr}`);
 }
 
-// Subir adjunto binario a Chatwoot
+// Subir binario
 async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, outgoing = false) {
   const form = new FormData();
   form.append('message_type', outgoing ? 'outgoing' : 'incoming');
@@ -132,9 +133,8 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
   return data.id;
 }
 
-// ====== MEDIA (360dialog) — descarga binaria directa probando hosts/rutas con/sin phone_number_id ======
+// Descarga media 360dialog (prueba múltiples endpoints)
 async function fetch360MediaBinary(mediaId, phoneNumberId) {
-  // combinaciones de base y query
   const bases = [
     'https://waba-v2.360dialog.io/v1/media',
     'https://waba-v2.360dialog.io/media',
@@ -148,7 +148,7 @@ async function fetch360MediaBinary(mediaId, phoneNumberId) {
     for (const q of queries) {
       const url = `${base}/${mediaId}${q}`;
       try {
-        // 1) sin header (URL firmada pública)
+        // 1) sin header (URL firmada)
         let resp = await axios.get(url, {
           responseType: 'arraybuffer',
           validateStatus: s => s >= 200 && s < 400
@@ -191,7 +191,7 @@ async function fetch360MediaBinary(mediaId, phoneNumberId) {
   throw new Error(`No media from 360dialog (id=${mediaId}, pnid=${phoneNumberId}). Último: ${lastStatus} @ ${lastUrl} :: ${lastErr}`);
 }
 
-// Forzar ABIERTO y (opcional) asignar
+// Abrir conversación + asignación opcional
 async function setConversationOpen(conversationId, assigneeId = null) {
   await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`,
@@ -200,12 +200,12 @@ async function setConversationOpen(conversationId, assigneeId = null) {
   );
   await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/assignments`,
-    { assignee_id: assigneeId }, // null => No asignados
+    { assignee_id: assigneeId },
     { headers: { api_access_token: CHATWOOT_API_TOKEN } }
   );
 }
 
-// Nombre de archivo según tipo/mime
+// Filename helper
 function filenameFor(type, mediaId, mime, mediaObj) {
   if (mediaObj?.filename) return mediaObj.filename;
   const extFromMime = (mime || '').split('/')[1]?.split(';')[0] || '';
@@ -215,8 +215,9 @@ function filenameFor(type, mediaId, mime, mediaObj) {
 }
 
 // ========= ENDPOINTS =========
+app.get('/health', (_req, res) => res.status(200).send('ok'));
 
-// 1) Entrantes
+// 1) Entrantes (360dialog -> Chatwoot)
 app.post('/webhook', async (req, res) => {
   try {
     const entry    = req.body.entry?.[0];
@@ -241,11 +242,11 @@ app.post('/webhook', async (req, res) => {
     const conversationId = await getOrCreateConversation(contact.id, sourceId);
     if (!conversationId) return res.sendStatus(500);
 
-    // phone_number_id (cuando viene en el payload)
+    // phone_number_id si viene
     const phoneNumberId =
       changes?.metadata?.phone_number_id ||
       changes?.metadata?.phone_number?.id ||
-      changes?.phone_number_id || // fallback extra
+      changes?.phone_number_id ||
       '';
 
     const type = msg.type;
@@ -259,13 +260,12 @@ app.post('/webhook', async (req, res) => {
       const caption  = mediaObj.caption || '';
 
       try {
-        const { buffer, mime, urlTried } = await fetch360MediaBinary(mediaId, phoneNumberId);
+        const { buffer, mime } = await fetch360MediaBinary(mediaId, phoneNumberId);
         const fname = filenameFor(type, mediaId, mime, mediaObj);
-        console.log(`✅ media descargado de ${urlTried} (${mime}; ${buffer.length} bytes)`);
         await sendAttachmentToChatwoot(conversationId, buffer, fname, mime, false);
         if (caption) await sendToChatwoot(conversationId, 'text', caption, false);
       } catch (e) {
-        console.error(`❌ No se pudo descargar/subir media (id=${mediaId}, pnid=${phoneNumberId}):`, e.message, 'mediaObj=', j(mediaObj));
+        console.error(`❌ Media no descargada/subida (id=${mediaId}, pnid=${phoneNumberId}):`, e.message);
         await sendToChatwoot(conversationId, 'text', '[Media recibido pero no se pudo descargar]', false);
       }
 
@@ -308,7 +308,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 2) Salientes desde Chatwoot -> WhatsApp (texto)
+// 2) Salientes Chatwoot -> WhatsApp (texto)
 app.post('/outbound', async (req, res) => {
   const msg = req.body;
   if (!msg?.message_type || msg.message_type !== 'outgoing' || msg.content?.includes('[streamlit]')) {
@@ -341,7 +341,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// 3) Reflejo desde Streamlit -> Chatwoot (y Abrir)
+// 3) Reflejo Streamlit -> Chatwoot (y Abrir)
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -383,6 +383,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
   }
 });
 
-// ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
