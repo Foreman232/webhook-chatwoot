@@ -141,6 +141,8 @@ async function fetch360MediaBinary(mediaId) {
       { headers: { 'D360-API-KEY': D360_API_KEY } }
     );
 
+    console.log('📥 Respuesta media meta:', resp.data);
+
     if (!resp.data?.url) {
       throw new Error(`No signed URL in response: ${JSON.stringify(resp.data)}`);
     }
@@ -340,5 +342,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
 
