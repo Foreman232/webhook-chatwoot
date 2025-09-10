@@ -1,5 +1,5 @@
-// index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto"
-// Descarga binaria con signed URL de 360dialog, manejo de expirados.
+// index.js — 360dialog <-> Chatwoot con media, contactos y "Abierto"
+// Manejo de media expirado (404), logs claros.
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -135,13 +135,13 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
 // ====== MEDIA (360dialog) — pedir signed URL y bajar binario ======
 async function fetch360MediaBinary(mediaId) {
   try {
-    // 1) pedir signed URL con API key
+    // 1) pedir signed URL
     const resp = await axios.get(
       `https://waba-v2.360dialog.io/v1/media/${mediaId}`,
       { headers: { 'D360-API-KEY': D360_API_KEY } }
     );
 
-    console.log('📥 Respuesta media meta:', resp.data);
+    console.log("📥 Respuesta /v1/media:", resp.data);
 
     if (!resp.data?.url) {
       throw new Error(`No signed URL in response: ${JSON.stringify(resp.data)}`);
@@ -149,7 +149,7 @@ async function fetch360MediaBinary(mediaId) {
 
     const signedUrl = resp.data.url;
 
-    // 2) bajar binario desde la signed URL
+    // 2) bajar binario desde signed URL
     const fileResp = await axios.get(signedUrl, { responseType: 'arraybuffer' });
 
     return {
@@ -160,6 +160,10 @@ async function fetch360MediaBinary(mediaId) {
   } catch (err) {
     const status = err.response?.status || '';
     const detail = err.response?.data?.error || j(err.response?.data) || err.message;
+
+    if (status === 404) {
+      throw new Error(`[Media expirado o no encontrado]`);
+    }
     throw new Error(`fetch360MediaBinary failed (id=${mediaId}): ${status} ${detail}`);
   }
 }
@@ -231,8 +235,8 @@ app.post('/webhook', async (req, res) => {
         await sendAttachmentToChatwoot(conversationId, buffer, fname, mime, false);
         if (caption) await sendToChatwoot(conversationId, 'text', caption, false);
       } catch (e) {
-        console.error(`❌ No se pudo descargar/subir media (id=${mediaId}):`, e.message);
-        await sendToChatwoot(conversationId, 'text', `[Media no disponible: ${e.message}]`, false);
+        console.error(`❌ No se pudo descargar media (id=${mediaId}):`, e.message);
+        await sendToChatwoot(conversationId, 'text', e.message, false);
       }
 
     } else if (type === 'location') {
@@ -342,4 +346,3 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
-
