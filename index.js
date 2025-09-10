@@ -1,5 +1,5 @@
 // index.js — 360dialog <-> Chatwoot con media (imagen/documento/audio/video/sticker), contactos y "Abierto"
-// Descarga binaria con signed URL de 360dialog.
+// Descarga binaria con signed URL de 360dialog, manejo de expirados.
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -156,7 +156,9 @@ async function fetch360MediaBinary(mediaId) {
       urlTried: signedUrl
     };
   } catch (err) {
-    throw new Error(`fetch360MediaBinary failed (id=${mediaId}): ${j(err.response?.data) || err.message}`);
+    const status = err.response?.status || '';
+    const detail = err.response?.data?.error || j(err.response?.data) || err.message;
+    throw new Error(`fetch360MediaBinary failed (id=${mediaId}): ${status} ${detail}`);
   }
 }
 
@@ -227,8 +229,8 @@ app.post('/webhook', async (req, res) => {
         await sendAttachmentToChatwoot(conversationId, buffer, fname, mime, false);
         if (caption) await sendToChatwoot(conversationId, 'text', caption, false);
       } catch (e) {
-        console.error(`❌ No se pudo descargar/subir media (id=${mediaId}):`, e.message, 'mediaObj=', j(mediaObj));
-        await sendToChatwoot(conversationId, 'text', '[Media recibido pero no se pudo descargar]', false);
+        console.error(`❌ No se pudo descargar/subir media (id=${mediaId}):`, e.message);
+        await sendToChatwoot(conversationId, 'text', `[Media no disponible: ${e.message}]`, false);
       }
 
     } else if (type === 'location') {
@@ -338,4 +340,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
 
