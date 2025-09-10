@@ -1,5 +1,5 @@
 // index.js — 360dialog <-> Chatwoot con media, contactos y "Abierto"
-// Manejo de media expirado (404) con mensaje seguro en Chatwoot.
+// Manejo de media expirado y mensajes de sistema (incoming para evitar error al enviar)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -132,10 +132,14 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
   return data.id;
 }
 
+// ====== MENSAJES DE SISTEMA ======
+async function sendSystemNote(conversationId, content) {
+  return await sendToChatwoot(conversationId, 'text', `⚠️ ${content}`, false);
+}
+
 // ====== MEDIA (360dialog) — pedir signed URL y bajar binario ======
 async function fetch360MediaBinary(mediaId) {
   try {
-    // 1) pedir signed URL
     const resp = await axios.get(
       `https://waba-v2.360dialog.io/v1/media/${mediaId}`,
       { headers: { 'D360-API-KEY': D360_API_KEY } }
@@ -148,8 +152,6 @@ async function fetch360MediaBinary(mediaId) {
     }
 
     const signedUrl = resp.data.url;
-
-    // 2) bajar binario desde signed URL
     const fileResp = await axios.get(signedUrl, { responseType: 'arraybuffer' });
 
     return {
@@ -159,12 +161,10 @@ async function fetch360MediaBinary(mediaId) {
     };
   } catch (err) {
     const status = err.response?.status || '';
-    const detail = err.response?.data?.error || j(err.response?.data) || err.message;
-
     if (status === 404) {
-      throw new Error('⚠️ Media expirado o no encontrado (ya no se puede descargar desde WhatsApp)');
+      throw new Error('Media expirado o no encontrado (ya no se puede descargar desde WhatsApp)');
     }
-    throw new Error(`fetch360MediaBinary failed (id=${mediaId}): ${status} ${detail}`);
+    throw new Error(`fetch360MediaBinary failed (id=${mediaId}): ${status} ${err.message}`);
   }
 }
 
@@ -236,7 +236,7 @@ app.post('/webhook', async (req, res) => {
         if (caption) await sendToChatwoot(conversationId, 'text', caption, false);
       } catch (e) {
         console.error(`❌ No se pudo descargar media (id=${mediaId}):`, e.message);
-        await sendToChatwoot(conversationId, 'text', e.message, false);
+        await sendSystemNote(conversationId, e.message);
       }
 
     } else if (type === 'location') {
@@ -245,7 +245,7 @@ app.post('/webhook', async (req, res) => {
       await sendToChatwoot(conversationId, 'text', locStr, false);
 
     } else {
-      await sendToChatwoot(conversationId, 'text', '[Contenido no soportado]', false);
+      await sendSystemNote(conversationId, 'Contenido no soportado');
     }
 
     try { await setConversationOpen(conversationId, null); }
@@ -346,3 +346,4 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
