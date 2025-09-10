@@ -1,5 +1,5 @@
 // index.js — 360dialog <-> Chatwoot con media, contactos y "Abierto"
-// Manejo de media expirado (404), logs claros.
+// Manejo de media expirado (404) con mensaje seguro en Chatwoot.
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -162,7 +162,7 @@ async function fetch360MediaBinary(mediaId) {
     const detail = err.response?.data?.error || j(err.response?.data) || err.message;
 
     if (status === 404) {
-      throw new Error(`[Media expirado o no encontrado]`);
+      throw new Error('⚠️ Media expirado o no encontrado (ya no se puede descargar desde WhatsApp)');
     }
     throw new Error(`fetch360MediaBinary failed (id=${mediaId}): ${status} ${detail}`);
   }
