@@ -1,5 +1,5 @@
 // index.js — 360dialog <-> Chatwoot con media, contactos y "Abierto"
-// Manejo de media expirado y mensajes de sistema (incoming para evitar error al enviar)
+// Manejo correcto de media expirado con mensajes entrantes (incoming) en Chatwoot.
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -87,7 +87,7 @@ async function getOrCreateConversation(contactId, sourceId) {
   }
 }
 
-// Reintentos al guardar texto
+// ========= MENSAJES =========
 async function sendToChatwoot(conversationId, type, content, outgoing = false, maxRetries = 4) {
   const payload = { message_type: outgoing ? 'outgoing' : 'incoming', private: false };
   if (['image', 'document', 'audio', 'video'].includes(type)) {
@@ -132,12 +132,27 @@ async function sendAttachmentToChatwoot(conversationId, buffer, filename, mime, 
   return data.id;
 }
 
-// ====== MENSAJES DE SISTEMA ======
+// Mensajes de sistema (siempre incoming)
 async function sendSystemNote(conversationId, content) {
-  return await sendToChatwoot(conversationId, 'text', `⚠️ ${content}`, false);
+  const payload = {
+    message_type: 'incoming',
+    private: false,
+    content: `⚠️ ${content}`
+  };
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages`,
+      payload,
+      { headers: { api_access_token: CHATWOOT_API_TOKEN } }
+    );
+    return data.id;
+  } catch (err) {
+    console.error('❌ Error mandando nota de sistema:', j(err.response?.data) || err.message);
+    return null;
+  }
 }
 
-// ====== MEDIA (360dialog) — pedir signed URL y bajar binario ======
+// ========= MEDIA (360dialog) =========
 async function fetch360MediaBinary(mediaId) {
   try {
     const resp = await axios.get(
@@ -168,7 +183,7 @@ async function fetch360MediaBinary(mediaId) {
   }
 }
 
-// Forzar ABIERTO y (opcional) asignar
+// ========= CONVERSACIÓN =========
 async function setConversationOpen(conversationId, assigneeId = null) {
   await axios.post(
     `${BASE_URL}/${CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/toggle_status`,
@@ -182,7 +197,6 @@ async function setConversationOpen(conversationId, assigneeId = null) {
   );
 }
 
-// Nombre de archivo según tipo/mime
 function filenameFor(type, mediaId, mime, mediaObj) {
   if (mediaObj?.filename) return mediaObj.filename;
   const extFromMime = (mime || '').split('/')[1]?.split(';')[0] || '';
@@ -301,7 +315,7 @@ app.post('/outbound', async (req, res) => {
   }
 });
 
-// 3) Reflejo desde Streamlit -> Chatwoot (y Abrir)
+// 3) Reflejo desde Streamlit -> Chatwoot
 app.post('/send-chatwoot-message', async (req, res) => {
   try {
     const { phone, name, content } = req.body;
@@ -346,4 +360,5 @@ app.post('/send-chatwoot-message', async (req, res) => {
 // ========= SERVER =========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Webhook corriendo en puerto ${PORT}`));
+
 
