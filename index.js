@@ -38,36 +38,30 @@ function j(v){
   } 
 }
 
-// Función mejorada para obtener información del media desde 360dialog
+// Función corregida para obtener información del media desde 360dialog
 async function getMediaInfo(mediaId, phoneNumberId) {
   console.log(`🔍 Obteniendo info de media ID: ${mediaId}, phone_number_id: ${phoneNumberId}`);
   
   const config = {
     headers: {
-      'D360-API-KEY': D360_API_KEY,
-      'Content-Type': 'application/json'
+      'D360-API-KEY': D360_API_KEY
     }
   };
 
-  // Intentar diferentes URLs para obtener la información del media
+  // URLs correctas según documentación oficial de 360dialog
   const urls = [
-    `${D360_MEDIA_URL}/${mediaId}`,
-    `https://waba-v2.360dialog.io/v1/media/${mediaId}`,
-    `https://waba.360dialog.io/v1/media/${mediaId}`
+    `https://waba-v2.360dialog.io/${mediaId}`, // Endpoint principal correcto
+    `https://waba-v2.360dialog.io/v1/media/${mediaId}`, // Alternativo
   ];
-
-  if (phoneNumberId) {
-    urls.push(`${D360_MEDIA_URL}/${mediaId}?phone_number_id=${phoneNumberId}`);
-  }
 
   for (const url of urls) {
     try {
       console.log(`🌐 Intentando obtener info desde: ${url}`);
       const response = await axios.get(url, config);
       
-      if (response.data && response.data.url) {
+      if (response.data && (response.data.url || response.data.id)) {
         console.log(`✅ Info de media obtenida desde: ${url}`);
-        console.log(`📄 Respuesta:`, j(response.data));
+        console.log(`📄 Respuesta completa:`, j(response.data));
         return response.data;
       }
     } catch (error) {
@@ -78,39 +72,57 @@ async function getMediaInfo(mediaId, phoneNumberId) {
   throw new Error(`No se pudo obtener información del media ${mediaId}`);
 }
 
-// Función mejorada para descargar el archivo binario
-async function downloadMediaBinary(mediaUrl, mediaId) {
-  console.log(`⬇️ Descargando media desde URL: ${mediaUrl}`);
+// Función corregida para descargar el archivo binario usando el método de 360dialog
+async function downloadMediaBinary(mediaInfo, mediaId) {
+  console.log(`⬇️ Descargando media usando info:`, j(mediaInfo));
   
+  let downloadUrl = '';
+  
+  // Caso 1: Si viene una URL de Facebook, transformarla según documentación
+  if (mediaInfo.url && mediaInfo.url.includes('lookaside.fbsbx.com')) {
+    // Ejemplo de transformación según docs:
+    // De: https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=130345565692730173924&ext=1664537344507&hash=ATtBt0Cdio
+    // A: https://waba-v2.360dialog.io/whatsapp_business/attachments/?mid=130345565692730173924&ext=1664537344507&hash=ATtBt0Cdio
+    const urlParts = mediaInfo.url.replace('https://lookaside.fbsbx.com', '');
+    downloadUrl = `https://waba-v2.360dialog.io${urlParts}`;
+    console.log(`🔄 URL transformada de Facebook: ${downloadUrl}`);
+    
+  } else if (mediaInfo.url) {
+    downloadUrl = mediaInfo.url;
+    console.log(`🔗 Usando URL directa: ${downloadUrl}`);
+    
+  } else {
+    throw new Error('No se encontró URL válida en la información del media');
+  }
+
   const configs = [
-    // Sin headers (URL firmada)
-    {
-      responseType: 'arraybuffer',
-      timeout: 30000,
-      maxContentLength: 50 * 1024 * 1024, // 50MB max
-    },
-    // Con API key
+    // Configuración con API key (requerido para 360dialog)
     {
       headers: {
         'D360-API-KEY': D360_API_KEY,
-        'User-Agent': 'Mozilla/5.0 (compatible; 360dialog-webhook)',
       },
       responseType: 'arraybuffer',
       timeout: 30000,
-      maxContentLength: 50 * 1024 * 1024,
+      maxContentLength: 100 * 1024 * 1024, // 100MB según docs
+    },
+    // Configuración sin headers (por si la URL es firmada)
+    {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      maxContentLength: 100 * 1024 * 1024,
     }
   ];
 
   for (let i = 0; i < configs.length; i++) {
     try {
-      console.log(`🔄 Intento ${i + 1} de descarga...`);
-      const response = await axios.get(mediaUrl, configs[i]);
+      console.log(`🔄 Intento ${i + 1} de descarga desde: ${downloadUrl}`);
+      const response = await axios.get(downloadUrl, configs[i]);
       
       if (response.data && response.data.byteLength > 0) {
         console.log(`✅ Media descargado exitosamente (${response.data.byteLength} bytes)`);
         return {
           buffer: Buffer.from(response.data),
-          contentType: response.headers['content-type'] || 'application/octet-stream',
+          contentType: response.headers['content-type'] || mediaInfo.mime_type || 'application/octet-stream',
           size: response.data.byteLength
         };
       }
@@ -123,18 +135,18 @@ async function downloadMediaBinary(mediaUrl, mediaId) {
   }
 }
 
-// Función combinada para obtener y descargar media
+// Función combinada corregida para obtener y descargar media según 360dialog docs
 async function fetch360MediaBinary(mediaId, phoneNumberId) {
   try {
     // Paso 1: Obtener información del media (incluyendo URL de descarga)
     const mediaInfo = await getMediaInfo(mediaId, phoneNumberId);
     
-    if (!mediaInfo.url) {
-      throw new Error('No se encontró URL de descarga en la respuesta de 360dialog');
+    if (!mediaInfo.url && !mediaInfo.id) {
+      throw new Error('No se encontró URL ni ID válido en la respuesta de 360dialog');
     }
 
-    // Paso 2: Descargar el archivo binario
-    const downloadResult = await downloadMediaBinary(mediaInfo.url, mediaId);
+    // Paso 2: Descargar el archivo binario usando la información obtenida
+    const downloadResult = await downloadMediaBinary(mediaInfo, mediaId);
     
     return {
       buffer: downloadResult.buffer,
@@ -145,6 +157,7 @@ async function fetch360MediaBinary(mediaId, phoneNumberId) {
 
   } catch (error) {
     console.error(`❌ Error completo en fetch360MediaBinary:`, error.message);
+    console.error(`📄 Stack completo:`, error.stack);
     throw error;
   }
 }
